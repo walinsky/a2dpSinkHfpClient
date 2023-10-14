@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include "bt_app_i2s.h"
 
 /* log tag */
 #define BT_APP_CORE_TAG    "BT_APP_CORE"
@@ -55,6 +56,10 @@ typedef void (* bt_app_copy_cb_t) (void *p_dest, void *p_src, int len);
  */
 bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, int param_len, bt_app_copy_cb_t p_copy_cback);
 
+/**
+ * @brief  initialize our classic bluetooth stack
+ */
+void bt_app_bt_init(void);
 /**
  * @brief  start up the application task
  */
@@ -109,4 +114,6 @@ size_t write_ringbuf(const uint8_t *data, uint32_t size);
 size_t write_rx_ringbuf(char *data, uint32_t size);
 uint32_t read_ringbuf(uint8_t *p_buf, uint32_t sz);
 void bt_app_hf_client_tx_data_cb(const uint8_t *buf, uint32_t len);
+void bt_app_set_pin_code(const char *pin, uint8_t pin_code_len);
+void bt_app_set_device_name(char *name);
 #endif /* __BT_APP_CORE_H__ */

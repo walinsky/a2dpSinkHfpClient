@@ -33,6 +33,7 @@ i2s_chan_handle_t tx_chan = NULL;
 i2s_chan_handle_t rx_chan = NULL;
 // semaphore handle for allowing a2dp to writing to i2s
 extern SemaphoreHandle_t s_i2s_tx_mode_semaphore;
+
 /*  
     I2S pins we use for our BT audio
     int bck, int ws, int dout, int din;

@@ -13,14 +13,26 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "freertos/ringbuf.h"
+
+#include "esp_system.h"
 #include "esp_log.h"
+#include "esp_bt.h"
+#include "esp_bt_main.h"
+#include "esp_bt_device.h"
+#include "esp_gap_bt_api.h"
+#include "esp_a2dp_api.h"
+#include "esp_avrc_api.h"
+#include "esp_hf_client_api.h"
+#include "esp_timer.h"
+
 #include "bt_app_core.h"
 #include "bt_app_volume_control.h"
 #include "bt_app_i2s.h"
-#include "driver/i2s_std.h"
-#include "freertos/ringbuf.h"
+#include "bt_app_av.h"
 #include "bt_app_hf.h"
-#include "esp_timer.h"
+#include "driver/i2s_std.h"
+
 #include "osi/allocator.h"
 
 #define RINGBUF_HIGHEST_WATER_LEVEL    (32 * 1024)
@@ -41,6 +53,24 @@ enum {
 // 7500 microseconds(=12 slots) is aligned to 1 msbc frame duration, and is multiple of common Tesco for eSCO link with EV3 or 2-EV3 packet type
 #define PCM_BLOCK_DURATION_US        (7500)
 
+esp_bd_addr_t peer_addr = {0};
+static char peer_bdname[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
+static uint8_t peer_bdname_len;
+
+static const char remote_device_name[] = "ESP_HFP_AG";  // this is a placeholder for your phone's name
+
+/* device name */
+static char local_device_name[] = "ESP_SPEAKER";  // this is a placeholder for this device's name
+
+/* set default parameters for Legacy Pairing (use fixed pin code 1234) */
+esp_bt_pin_type_t pin_type = ESP_BT_PIN_TYPE_FIXED;
+esp_bt_pin_code_t pin_code = {1, 2, 3, 4};
+
+/* event for stack up */
+enum {
+    BT_APP_EVT_STACK_UP = 0,
+};
+
 /*******************************
  * STATIC FUNCTION DECLARATIONS
  ******************************/
@@ -55,7 +85,10 @@ static bool bt_app_send_msg(bt_app_msg_t *msg);
 static void bt_app_work_dispatched(bt_app_msg_t *msg);
 /* handler for I2S rx task */
 static void bt_i2s_rx_task_handler(void *arg);
-
+/* GAP callback function */
+static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
+/* handler for bluetooth stack enabled events */
+static void bt_av_hdl_stack_evt(uint16_t event, void *p_param);
 /*******************************
  * STATIC VARIABLE DEFINITIONS
  ******************************/
@@ -71,8 +104,6 @@ static SemaphoreHandle_t s_i2s_rx_write_semaphore = NULL;   /* handle of semapho
 static TaskHandle_t s_bt_i2s_tx_task_handle = NULL;         /* handle of I2S tx task */
 static RingbufHandle_t s_ringbuf_i2s_tx = NULL;             /* handle of ringbuffer for I2S tx*/
 static SemaphoreHandle_t s_i2s_tx_write_semaphore = NULL;   /* handle of semaphore for hfp I2S tx */
-
-// static SemaphoreHandle_t s_i2s_rx_write_callback_semaphore = NULL;
 static uint16_t ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
 static uint16_t rx_ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
 static uint16_t s_i2s_tx_mode = I2S_TX_MODE_NONE;
@@ -81,14 +112,154 @@ static esp_timer_handle_t s_i2s_rx_timer = NULL;
 /*********************************
  * EXTERNAL FUNCTION DECLARATIONS
  ********************************/
-extern i2s_chan_handle_t tx_chan;
-extern i2s_chan_handle_t rx_chan;
+extern i2s_chan_handle_t tx_chan;                           /* this is our tx channel. we send both a2dp and hfp here */
+extern i2s_chan_handle_t rx_chan;                           /* this is our rx channel. we receive data from our mems microphone here */
 
 
 /*******************************
  * STATIC FUNCTION DEFINITIONS
  ******************************/
 static void i2s_rx_timer_callback(void* arg);
+
+static bool get_name_from_eir(uint8_t *eir, char *bdname, uint8_t *bdname_len)
+{
+    uint8_t *rmt_bdname = NULL;
+    uint8_t rmt_bdname_len = 0;
+
+    if (!eir) {
+        return false;
+    }
+
+    rmt_bdname = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_CMPL_LOCAL_NAME, &rmt_bdname_len);
+    if (!rmt_bdname) {
+        rmt_bdname = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_SHORT_LOCAL_NAME, &rmt_bdname_len);
+    }
+
+    if (rmt_bdname) {
+        if (rmt_bdname_len > ESP_BT_GAP_MAX_BDNAME_LEN) {
+            rmt_bdname_len = ESP_BT_GAP_MAX_BDNAME_LEN;
+        }
+
+        if (bdname) {
+            memcpy(bdname, rmt_bdname, rmt_bdname_len);
+            bdname[rmt_bdname_len] = '\0';
+        }
+        if (bdname_len) {
+            *bdname_len = rmt_bdname_len;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+
+static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
+{
+    uint8_t *bda = NULL;
+
+    switch (event) {
+    case ESP_BT_GAP_DISC_RES_EVT: {
+        for (int i = 0; i < param->disc_res.num_prop; i++){
+            if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_EIR
+                && get_name_from_eir(param->disc_res.prop[i].val, peer_bdname, &peer_bdname_len)){
+                if (strcmp(peer_bdname, remote_device_name) == 0) {
+                    memcpy(peer_addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
+                    ESP_LOGI(BT_HF_TAG, "Found a target device address:");
+                    esp_log_buffer_hex(BT_HF_TAG, peer_addr, ESP_BD_ADDR_LEN);
+                    ESP_LOGI(BT_HF_TAG, "Found a target device name: %s", peer_bdname);
+                    printf("Connect.\n");
+                    esp_hf_client_connect(peer_addr);
+                    esp_bt_gap_cancel_discovery();
+                }
+            }
+        }
+        break;
+    }
+    
+    /* when authentication completed, this event comes */
+    case ESP_BT_GAP_AUTH_CMPL_EVT: {
+        if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
+            ESP_LOGI(BT_AV_TAG, "authentication success: %s", param->auth_cmpl.device_name);
+            esp_log_buffer_hex(BT_AV_TAG, param->auth_cmpl.bda, ESP_BD_ADDR_LEN);
+        } else {
+            ESP_LOGE(BT_AV_TAG, "authentication failed, status: %d", param->auth_cmpl.stat);
+        }
+        break;
+    }
+    /* when GAP mode changed, this event comes */
+    case ESP_BT_GAP_MODE_CHG_EVT:
+        ESP_LOGI(BT_AV_TAG, "ESP_BT_GAP_MODE_CHG_EVT mode: %d", param->mode_chg.mode);
+        break;
+    /* when ACL connection completed, this event comes */
+    case ESP_BT_GAP_ACL_CONN_CMPL_STAT_EVT:
+        bda = (uint8_t *)param->acl_conn_cmpl_stat.bda;
+        ESP_LOGI(BT_AV_TAG, "ESP_BT_GAP_ACL_CONN_CMPL_STAT_EVT Connected to [%02x:%02x:%02x:%02x:%02x:%02x], status: 0x%x",
+                 bda[0], bda[1], bda[2], bda[3], bda[4], bda[5], param->acl_conn_cmpl_stat.stat);
+        break;
+    /* when ACL disconnection completed, this event comes */
+    case ESP_BT_GAP_ACL_DISCONN_CMPL_STAT_EVT:
+        bda = (uint8_t *)param->acl_disconn_cmpl_stat.bda;
+        ESP_LOGI(BT_AV_TAG, "ESP_BT_GAP_ACL_DISC_CMPL_STAT_EVT Disconnected from [%02x:%02x:%02x:%02x:%02x:%02x], reason: 0x%x",
+                 bda[0], bda[1], bda[2], bda[3], bda[4], bda[5], param->acl_disconn_cmpl_stat.reason);
+        break;
+    /* others */
+    default: {
+        ESP_LOGI(BT_AV_TAG, "event: %d", event);
+        break;
+    }
+    }
+}
+
+static void bt_av_hdl_stack_evt(uint16_t event, void *p_param)
+{
+    ESP_LOGD(BT_AV_TAG, "%s event: %d", __func__, event);
+
+    switch (event) {
+    /* when do the stack up, this event comes */
+    case BT_APP_EVT_STACK_UP: {
+        esp_bt_dev_set_device_name(local_device_name);
+        esp_bt_gap_register_callback(bt_app_gap_cb);
+        
+        esp_hf_client_register_callback(bt_app_hf_client_cb);
+        esp_hf_client_init();
+        setup_i2s_rx_timer();
+
+        assert(esp_avrc_ct_init() == ESP_OK);
+        esp_avrc_ct_register_callback(bt_app_rc_ct_cb);
+        assert(esp_avrc_tg_init() == ESP_OK);
+        esp_avrc_tg_register_callback(bt_app_rc_tg_cb);
+
+        esp_avrc_rn_evt_cap_mask_t evt_set = {0};
+        esp_avrc_rn_evt_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_SET, &evt_set, ESP_AVRC_RN_VOLUME_CHANGE);
+        assert(esp_avrc_tg_set_rn_evt_cap(&evt_set) == ESP_OK);
+
+        assert(esp_a2d_sink_init() == ESP_OK);
+        esp_a2d_register_callback(&bt_app_a2d_cb);
+        esp_a2d_sink_register_data_callback(bt_app_a2d_data_cb);
+
+        /* Get the default value of the delay value */
+        esp_a2d_sink_get_delay_value();
+
+        /* Set our major minor an service class here (overwriting what a2dp and hpf have set) */
+        /* service     major minor               */
+        /* 01000000000 00100 001111 00 (0x40043C)*/
+        esp_bt_cod_t cod;
+        cod.minor = 0b111100;
+        cod.major = 0b00100;
+        cod.service = 0b00000000010;
+        esp_bt_gap_set_cod(cod, ESP_BT_INIT_COD);
+
+        /* set discoverable and connectable mode, wait to be connected */
+        esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+        break;
+    }
+    /* others */
+    default:
+        ESP_LOGE(BT_AV_TAG, "%s unhandled event: %d", __func__, event);
+        break;
+    }
+}
 
 static bool bt_app_send_msg(bt_app_msg_t *msg)
 {
@@ -234,6 +405,55 @@ static void bt_i2s_rx_task_handler(void *arg)
         // todo: free (osi) tx and rx buff here
         taskYIELD();
     }
+}
+
+void bt_app_set_pin_code(const char *pin, uint8_t pin_code_len)
+{
+    if(pin_code_len == 0 || pin_code_len > 16)
+    {
+        ESP_LOGE(BT_APP_CORE_TAG, "PIN code must be 1-16 Bytes long! Called with length %d", pin_code_len);
+    }
+    memcpy(pin_code, pin, pin_code_len);
+}
+
+void bt_app_set_device_name(char *name)
+{
+    strcpy(local_device_name, name);
+}
+
+
+
+void bt_app_bt_init()
+{
+    esp_err_t err;
+    /*
+     * We only use the functions of Classical Bluetooth.
+     * So release the controller memory for Bluetooth Low Energy.
+     */
+    ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
+
+    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+    if ((err = esp_bt_controller_init(&bt_cfg)) != ESP_OK) {
+        ESP_LOGE(BT_AV_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(err));
+        return;
+    }
+    if ((err = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT)) != ESP_OK) {
+        ESP_LOGE(BT_AV_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(err));
+        return;
+    }
+    if ((err = esp_bluedroid_init()) != ESP_OK) {
+        ESP_LOGE(BT_AV_TAG, "%s initialize bluedroid failed: %s\n", __func__, esp_err_to_name(err));
+        return;
+    }
+    if ((err = esp_bluedroid_enable()) != ESP_OK) {
+        ESP_LOGE(BT_AV_TAG, "%s enable bluedroid failed: %s\n", __func__, esp_err_to_name(err));
+        return;
+    }
+    esp_bt_gap_set_pin(pin_type, 4, pin_code);
+
+    bt_app_task_start_up();
+
+    bt_app_work_dispatch(bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, NULL, 0, NULL);
 }
 
 void setup_i2s_rx_timer()
