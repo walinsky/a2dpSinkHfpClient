@@ -4,6 +4,7 @@ A2DP-SINK & HFP CLIENT
 This is a working version of API implementing both Advanced Audio Distribution Profile and HFP Client.
 
 This involves the use of Bluetooth legacy profile A2DP for audio stream reception, AVRCP for media information notifications, HFP client for making/answering phone calls and I2S for audio stream input/output interface.
+Or in normal words: you turn your esp32 in both a carkit and a bluetooth speaker.
 
 ## How to use
 
@@ -13,23 +14,17 @@ Besides a ESP32 you'll need a I2S DAC (I used a PCM5102) and a mems microphone (
 
 GPIO pins for our i2s DAC are set in main.c, and can be changed to whatever you like
 ```
-#define TX_BCK_PIN         GPIO_NUM_26
-#define TX_WS_PIN          GPIO_NUM_17
-#define TX_DO_PIN          GPIO_NUM_25
-#define TX_DI_PIN          GPIO_NUM_NC
+bt_i2s_set_tx_I2S_pins(GPIO_NUM_26, GPIO_NUM_17, GPIO_NUM_25, GPIO_NUM_NC);
 ```
 Same goes for our i2s mems microphone pins
 ```
-#define RX_BCK_PIN         GPIO_NUM_16
-#define RX_WS_PIN          GPIO_NUM_27
-#define RX_DO_PIN          GPIO_NUM_NC
-#define RX_DI_PIN          GPIO_NUM_14
+bt_i2s_set_rx_I2S_pins(GPIO_NUM_16, GPIO_NUM_27, GPIO_NUM_NC, GPIO_NUM_14);
 ```
 ![ESP32](./img/esp32.png "ESP32 with mic and dac")
 
 ### Build and Flash
 
-Assuming you're using ESP-IDF5.1 you should be able to build and flash straight away. sdkconfig.defaults enables bluedroid, hfp, adp and other necessities.
+Assuming you're using ESP-IDF5.1 you should be able to build and flash straight away. `sdkconfig.defaults` enables bluedroid, hfp, adp and other necessities.
 
 ## Usage
 
