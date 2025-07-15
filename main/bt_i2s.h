@@ -1,12 +1,15 @@
-#ifndef __BT_APP_I2S_H__
-#define __BT_APP_I2S_H__
+#ifndef __BT_I2S_H__
+#define __BT_I2S_H__
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include <stdint.h>
-#include "bt_app_core.h"
-// #include "bt_app_i2s.h"
 #include "driver/i2s_std.h"
 
-#define BT_APP_I2S_TAG "BT_I2S"
+#define BT_I2S_TAG "BT_I2S"
 
 typedef struct I2S_pin_config
 {
@@ -32,4 +35,15 @@ void bt_i2s_tx_channel_reconfig_clock_slot_default(void);
 void bt_i2s_channels_config_adp(void);
 void bt_i2s_channels_config_hfp(void);
 
-#endif /* __BT_APP_I2S_H__*/
+void bt_i2s_a2dp_tx_task_handler(void *arg);
+void bt_i2s_a2dp_task_init(void);
+void bt_i2s_a2dp_task_deinit(void);
+void bt_i2s_a2dp_task_start_up(void);
+void bt_i2s_a2dp_task_shut_down(void);
+void bt_i2s_a2dp_write_tx_ringbuf(const uint8_t *data, uint32_t size);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __BT_I2S_H__*/

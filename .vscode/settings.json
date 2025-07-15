@@ -1,5 +1,8 @@
 {
-    "idf.portWin": "COM3",
+    "idf.portWin": "COM5",
     "idf.flashType": "UART",
-    "idf.adapterTargetName": "esp32"
+    "idf.adapterTargetName": "esp32",
+    "idf.espIdfPathWin": "C:\\Users\\walin\\esp\\v5.4.2\\esp-idf",
+    "idf.toolsPathWin": "C:\\Users\\walin\\.espressif",
+    "idf.pythonInstallPath": "C:\\Users\\walin\\.espressif\\tools\\idf-python\\3.11.2\\python.exe"
 }
