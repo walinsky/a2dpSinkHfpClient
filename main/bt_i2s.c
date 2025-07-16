@@ -83,6 +83,36 @@ i2s_chan_handle_t rx_chan = NULL;
 extern SemaphoreHandle_t s_i2s_tx_mode_semaphore;
 
 
+/*
+I2S setup and init
+*/
+// Functions to set our I2S pins
+void bt_i2s_set_tx_I2S_pins(int bckPin, int wsPin, int doPin, int diPin) {
+    i2sTxPinConfig.bck = bckPin;
+    i2sTxPinConfig.ws = wsPin;
+    i2sTxPinConfig.dout = doPin;
+    i2sTxPinConfig.din = diPin;
+    ESP_LOGI(BT_I2S_TAG, "setting tx GPIO Pins: BCK: %d WS: %d DOUT: %d DIN: %d ", i2sTxPinConfig.bck, i2sTxPinConfig.ws, i2sTxPinConfig.dout, i2sTxPinConfig.din);
+}
+
+void bt_i2s_set_rx_I2S_pins(int bckPin, int wsPin, int doPin, int diPin) {
+    i2sRxPinConfig.bck = bckPin;
+    i2sRxPinConfig.ws = wsPin;
+    i2sRxPinConfig.dout = doPin;
+    i2sRxPinConfig.din = diPin;
+    ESP_LOGI(BT_I2S_TAG, "setting rx GPIO Pins: BCK: %d WS: %d DOUT: %d DIN: %d ", i2sRxPinConfig.bck, i2sRxPinConfig.ws, i2sRxPinConfig.dout, i2sRxPinConfig.din);
+}
+
+void bt_i2s_init() {
+    bt_i2s_init_tx_chan();
+    bt_i2s_a2dp_task_init();
+    bt_i2s_a2dp_task_start_up();
+    // b2_i2s_init_rx_chan();
+    // bt_i2s_hfp_task_init();
+    // bt_i2s_hfp_task_start_up();
+}
+
+
 /*  
     I2S mgmnt
 */
@@ -120,23 +150,6 @@ i2s_std_slot_config_t bt_i2s_get_adp_slot_cfg(void)
     i2s_std_slot_config_t adp_slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(A2DP_I2S_DATA_BIT_WIDTH, I2S_SLOT_MODE_STEREO);
     ESP_LOGI(BT_I2S_TAG, "reconfiguring adp slot to data bit width:  %d", A2DP_I2S_DATA_BIT_WIDTH);
     return adp_slot_cfg;
-}
-
-// Functions to set our I2S pins
-void bt_i2s_set_tx_I2S_pins(int bckPin, int wsPin, int doPin, int diPin) {
-    i2sTxPinConfig.bck = bckPin;
-    i2sTxPinConfig.ws = wsPin;
-    i2sTxPinConfig.dout = doPin;
-    i2sTxPinConfig.din = diPin;
-    ESP_LOGI(BT_I2S_TAG, "setting tx GPIO Pins: BCK: %d WS: %d DOUT: %d DIN: %d ", i2sTxPinConfig.bck, i2sTxPinConfig.ws, i2sTxPinConfig.dout, i2sTxPinConfig.din);
-}
-
-void bt_i2s_set_rx_I2S_pins(int bckPin, int wsPin, int doPin, int diPin) {
-    i2sRxPinConfig.bck = bckPin;
-    i2sRxPinConfig.ws = wsPin;
-    i2sRxPinConfig.dout = doPin;
-    i2sRxPinConfig.din = diPin;
-    ESP_LOGI(BT_I2S_TAG, "setting rx GPIO Pins: BCK: %d WS: %d DOUT: %d DIN: %d ", i2sRxPinConfig.bck, i2sRxPinConfig.ws, i2sRxPinConfig.dout, i2sRxPinConfig.din);
 }
 
 // This is our tx channel (used for both ad2p sink and hfp tx)

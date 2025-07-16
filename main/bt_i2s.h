@@ -19,10 +19,11 @@ typedef struct I2S_pin_config
     int din;  // GPIO number to use for I2S Data in.
 } I2S_pin_config;
 
+void bt_i2s_init();
 void bt_i2s_set_tx_I2S_pins(int bckPin, int wsPin, int doPin, int diPin);
 void bt_i2s_set_rx_I2S_pins(int bckPin, int wsPin, int doPin, int diPin);
 
-
+void bt_i2s_init_tx_chan();
 void bt_i2s_driver_install(void);
 void bt_i2s_driver_uninstall(void);
 void bt_i2s_channels_disable(void);
