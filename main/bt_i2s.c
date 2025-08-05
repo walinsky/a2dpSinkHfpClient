@@ -24,6 +24,8 @@
 
 #include "sys/lock.h"
 
+#define BT_I2S_TAG "BT_I2S"
+
 #define HFP_SAMPLE_RATE                 16000
 #define HFP_I2S_DATA_BIT_WIDTH          I2S_DATA_BIT_WIDTH_32BIT
 #define A2DP_STANDARD_SAMPLE_RATE       44100
@@ -48,24 +50,25 @@ enum {
 /*******************************
  * STATIC VARIABLE DEFINITIONS
  ******************************/
-// static QueueHandle_t s_bt_app_task_queue = NULL;             /* handle of work queue */
-// static TaskHandle_t s_bt_app_task_handle = NULL;             /* handle of application task  */
-static TaskHandle_t s_bt_i2s_a2dp_tx_task_handle = NULL;        /* handle of a2dp I2S task */
-static RingbufHandle_t s_i2s_a2dp_tx_ringbuf = NULL;            /* handle of ringbuffer for I2S tx*/
-static SemaphoreHandle_t s_i2s_a2dp_tx_semaphore = NULL;        /* handle of semaphore for a2dp I2S tx*/
-static TaskHandle_t s_bt_i2s_hfp_rx_task_handle = NULL;         /* handle of I2S rx task */
-static RingbufHandle_t s_i2s_hfp_rx_ringbuf = NULL;             /* handle of ringbuffer for I2S hfp rx*/
-static SemaphoreHandle_t s_i2s_hfp_rx_semaphore = NULL;         /* handle of semaphore for hfp I2S rx */
-static TaskHandle_t s_bt_i2s_hfp_tx_task_handle = NULL;         /* handle of I2S hfp tx task */
-static RingbufHandle_t s_i2s_hfp_tx_ringbuf = NULL;             /* handle of ringbuffer for hfp I2S tx*/
-static SemaphoreHandle_t s_i2s_hfp_tx_semaphore = NULL;         /* handle of semaphore for hfp I2S tx */
-static uint16_t ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;   // prefetching???
-static uint16_t rx_ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;// prefetching???
+// static QueueHandle_t s_bt_app_task_queue = NULL;                             /* handle of work queue */
+// static TaskHandle_t s_bt_app_task_handle = NULL;                             /* handle of application task  */
+static TaskHandle_t s_bt_i2s_a2dp_tx_task_handle = NULL;                        /* handle of a2dp I2S task */
+static RingbufHandle_t s_i2s_a2dp_tx_ringbuf = NULL;                            /* handle of ringbuffer for I2S tx*/
+// static SemaphoreHandle_t s_i2s_a2dp_tx_semaphore = NULL;                        /* handle of semaphore for a2dp I2S tx*/ // NOPE! Just a tx semaphore. tx is the same i2s for hfp and adp
+static TaskHandle_t s_bt_i2s_hfp_rx_task_handle = NULL;                         /* handle of I2S rx task */
+static RingbufHandle_t s_i2s_hfp_rx_ringbuf = NULL;                             /* handle of ringbuffer for I2S hfp rx*/
+// static SemaphoreHandle_t s_i2s_hfp_rx_semaphore = NULL;                         /* handle of semaphore for hfp I2S rx */ // NOPE!
+static TaskHandle_t s_bt_i2s_hfp_tx_task_handle = NULL;                         /* handle of I2S hfp tx task */
+static RingbufHandle_t s_i2s_hfp_tx_ringbuf = NULL;                             /* handle of ringbuffer for hfp I2S tx*/
+// static SemaphoreHandle_t s_i2s_hfp_tx_semaphore = NULL;                         /* handle of semaphore for hfp I2S tx */ // NOPE!
+static uint16_t s_i2s_a2dp_tx_ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;    /* a2dp tx ringbuffer mode */
+static uint16_t s_i2s_hfp_rx_ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;     /* hfp rx ringbuffer mode */
+static uint16_t s_i2s_hfp_tx_ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;     /* hfp tx ringbuffer mode */
 static uint16_t s_i2s_tx_mode = I2S_TX_MODE_NONE;
-static SemaphoreHandle_t s_i2s_tx_mode_semaphore = NULL;        /* handle of semaphore for I2S tx mode */
+static SemaphoreHandle_t s_i2s_tx_semaphore = NULL;
+static SemaphoreHandle_t s_i2s_rx_semaphore = NULL;
+// static SemaphoreHandle_t s_i2s_tx_mode_semaphore = NULL;        /* handle of semaphore for I2S tx mode */
 static esp_timer_handle_t s_i2s_rx_timer = NULL;
-
-
 
 /*  
     we initialize with default values here
@@ -80,7 +83,7 @@ I2S_pin_config i2sRxPinConfig = { 16, 27, 0, 14 };
 i2s_chan_handle_t tx_chan = NULL;
 i2s_chan_handle_t rx_chan = NULL;
 // semaphore handle for allowing a2dp to writing to i2s
-extern SemaphoreHandle_t s_i2s_tx_mode_semaphore;
+// extern SemaphoreHandle_t s_i2s_tx_mode_semaphore;
 
 
 /*
@@ -104,6 +107,14 @@ void bt_i2s_set_rx_I2S_pins(int bckPin, int wsPin, int doPin, int diPin) {
 }
 
 void bt_i2s_init() {
+    if ((s_i2s_tx_semaphore = xSemaphoreCreateBinary()) == NULL) {
+        ESP_LOGE(BT_I2S_TAG, "%s, s_i2s_write_semaphore Semaphore create failed", __func__);
+        return;
+    }
+    if ((s_i2s_rx_semaphore = xSemaphoreCreateBinary()) == NULL) {
+        ESP_LOGE(BT_I2S_TAG, "%s, s_i2s_read_semaphore Semaphore create failed", __func__);
+        return;
+    }
     bt_i2s_init_tx_chan();
     bt_i2s_a2dp_task_init();
     bt_i2s_a2dp_task_start_up();
@@ -321,8 +332,13 @@ void bt_i2s_channels_config_hfp(void)
     I2S tasks and buffers
 */
 
+/*
+A2DP
+*/
+
+
 /* 
-    initialize our ringbuffer and write semaphore for a2dp tx
+    fetch audio data from the a2dp ringbuffer and write to i2s
  */
 void bt_i2s_a2dp_tx_task_handler(void *arg)
 {
@@ -335,9 +351,8 @@ void bt_i2s_a2dp_tx_task_handler(void *arg)
      */
     const size_t item_size_upto = 240 * 6;
     size_t bytes_written = 0;
-    int last_i2s_tx_mode = I2S_TX_MODE_NONE;
     for (;;) {
-        if (pdTRUE == xSemaphoreTake(s_i2s_a2dp_tx_semaphore, portMAX_DELAY)) {
+        if (pdTRUE == xSemaphoreTake(s_i2s_tx_semaphore, portMAX_DELAY)) {
             for (;;) {
                 item_size = 0;
                 /* receive data from ringbuffer and write it to I2S DMA transmit buffer */
@@ -345,21 +360,13 @@ void bt_i2s_a2dp_tx_task_handler(void *arg)
                 data = (uint8_t *)xRingbufferReceiveUpTo(s_i2s_a2dp_tx_ringbuf, &item_size, 0, item_size_upto);
                 if (item_size == 0) {
                     ESP_LOGI(BT_I2S_TAG, "%s - tx ringbuffer underflowed! mode changed: RINGBUFFER_MODE_PREFETCHING", __func__);
-                    ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
+                    s_i2s_a2dp_tx_ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
                     break;
                 }
-                if (s_i2s_tx_mode == I2S_TX_MODE_A2DP)
-                {
-                    if (last_i2s_tx_mode != I2S_TX_MODE_A2DP)
-                    {
-                        //  ESP_LOGI(BT_APP_CORE_TAG, "%s - delaying for we just changed to a2dp mode", __func__);
-                        //  vTaskDelay(50);
-                        // bt_i2s_a2dp_task_start_up();
-                    }
+                if (s_i2s_tx_mode == I2S_TX_MODE_A2DP) { // we discard the data if we are not in a2dp mode
                     i2s_channel_write(tx_chan, data, item_size, &bytes_written, portMAX_DELAY);
                 }
                 vRingbufferReturnItem(s_i2s_a2dp_tx_ringbuf, (void *)data);
-                last_i2s_tx_mode = s_i2s_tx_mode;
             }
         }
     }
@@ -377,11 +384,7 @@ void bt_i2s_a2dp_task_init(void)
     // }
     // bt_app_set_i2s_tx_mode_none();
     ESP_LOGI(BT_I2S_TAG, "ringbuffer data empty! mode changed: RINGBUFFER_MODE_PREFETCHING");
-    ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
-    if ((s_i2s_a2dp_tx_semaphore = xSemaphoreCreateBinary()) == NULL) {
-        ESP_LOGE(BT_I2S_TAG, "%s, s_i2s_write_semaphore Semaphore create failed", __func__);
-        return;
-    }
+    s_i2s_a2dp_tx_ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
     if ((s_i2s_a2dp_tx_ringbuf = xRingbufferCreate(RINGBUF_HIGHEST_WATER_LEVEL, RINGBUF_TYPE_BYTEBUF)) == NULL) {
         ESP_LOGE(BT_I2S_TAG, "%s, ringbuffer create failed", __func__);
         return;
@@ -399,14 +402,15 @@ void bt_i2s_a2dp_task_deinit(void)
         vRingbufferDelete(s_i2s_a2dp_tx_ringbuf);
         s_i2s_a2dp_tx_ringbuf = NULL;
     }
-    if (s_i2s_a2dp_tx_semaphore) {
-        vSemaphoreDelete(s_i2s_a2dp_tx_semaphore);
-        s_i2s_a2dp_tx_semaphore = NULL;
-    }
-    if (s_i2s_tx_mode_semaphore) {
-        vSemaphoreDelete(s_i2s_tx_mode_semaphore);
-        s_i2s_tx_mode_semaphore = NULL;
-    }
+    //don't destroy the semaphore. do this in bt_i2s deinit
+    // if (s_i2s_a2dp_tx_semaphore) {
+    //     vSemaphoreDelete(s_i2s_a2dp_tx_semaphore);
+    //     s_i2s_a2dp_tx_semaphore = NULL;
+    // }
+    // if (s_i2s_tx_mode_semaphore) {
+    //     vSemaphoreDelete(s_i2s_tx_mode_semaphore);
+    //     s_i2s_tx_mode_semaphore = NULL;
+    // }
 }
 
 /* 
@@ -455,17 +459,148 @@ void read_data_stream(const uint8_t *data, uint32_t length)
 */
 
 
-    if (ringbuffer_mode == RINGBUFFER_MODE_DROPPING) {
+    if (s_i2s_a2dp_tx_ringbuffer_mode == RINGBUFFER_MODE_DROPPING) {
         ESP_LOGW(BT_I2S_TAG, "%s - ringbuffer is full, drop this packet!", __func__);
         vRingbufferGetInfo(s_i2s_a2dp_tx_ringbuf, NULL, NULL, NULL, NULL, &item_size);
         if (item_size <= RINGBUF_PREFETCH_WATER_LEVEL) {
             ESP_LOGI(BT_I2S_TAG, "%s - ringbuffer data decreased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
-            ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
+            s_i2s_a2dp_tx_ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
         }
         return;
     }
-    // ESP_LOGI(BT_APP_CORE_TAG, "%s - sending tx size %lu to the ringbuffer", __func__, size);
+    // ESP_LOGI(BT_I2S_TAG, "%s - sending tx size %lu to the ringbuffer", __func__, size);
     done = xRingbufferSend(s_i2s_a2dp_tx_ringbuf, (void *)data, size, (TickType_t)0);
+
+    if (!done) {
+        ESP_LOGW(BT_I2S_TAG, "%s - ringbuffer overflowed, ready to decrease data! mode changed: RINGBUFFER_MODE_DROPPING", __func__);
+        s_i2s_a2dp_tx_ringbuffer_mode = RINGBUFFER_MODE_DROPPING;
+    }
+
+    if (s_i2s_a2dp_tx_ringbuffer_mode == RINGBUFFER_MODE_PREFETCHING) {
+        vRingbufferGetInfo(s_i2s_a2dp_tx_ringbuf, NULL, NULL, NULL, NULL, &item_size);
+        if (item_size >= RINGBUF_PREFETCH_WATER_LEVEL) {
+            ESP_LOGI(BT_I2S_TAG, "%s - ringbuffer data increased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
+            s_i2s_a2dp_tx_ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
+            if (pdFALSE == xSemaphoreGive(s_i2s_tx_semaphore)) {// we have taken the semaphore in our tx task(?)
+                ESP_LOGE(BT_I2S_TAG, "%s - semphore give failed", __func__);
+            }
+        }
+    }
+
+    // return done ? size : 0;
+}
+
+/*
+    HFP
+*/
+void setup_i2s_rx_timer()
+{
+    const esp_timer_create_args_t periodic_timer_args = {
+            .callback = &bt_i2s_hfp_rx_timer_callback,
+            /* name is optional, but may help identify the timer when debugging */
+            .name = "i2s_rx_periodic"
+    };
+
+    ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &s_i2s_rx_timer));
+    /* The timer has been created but is not running yet */
+    
+}
+
+void bt_i2s_hfp_start_rx_timer()
+{
+    ESP_ERROR_CHECK(esp_timer_start_periodic(s_i2s_rx_timer, PCM_BLOCK_DURATION_US));
+}
+
+void bt_i2s_hfp_stop_rx_timer()
+{
+    ESP_ERROR_CHECK(esp_timer_stop(s_i2s_rx_timer));
+}
+
+ static void bt_i2s_hfp_rx_timer_callback(void* arg)
+{
+    if (s_i2s_rx_write_semaphore != NULL) {
+        xSemaphoreGive(s_i2s_rx_write_semaphore);
+    }
+}
+
+void bt_i2s_hfp_task_start_up(void)
+{
+    // bt_app_set_i2s_tx_mode_hfp(); // s_i2s_tx_mode = I2S_TX_MODE_HFP;
+//done in init()
+    // bt_i2s_channels_config_hfp();
+    // bt_i2s_tx_channel_enable();
+    // bt_i2s_rx_channel_enable();
+    // if ((s_i2s_hfp_rx_semaphore = xSemaphoreCreateBinary()) == NULL) {
+    //     ESP_LOGE(BT_I2S_TAG, "%s, rx Semaphore create failed", __func__);
+    //     return;
+    // }
+    // if ((s_i2s_hfp_tx_semaphore = xSemaphoreCreateBinary()) == NULL) {
+    //     ESP_LOGE(BT_I2S_TAG, "%s, tx Semaphore create failed", __func__);
+    //     return;
+    // }
+    if ((s_i2s_hfp_rx_ringbuf = xRingbufferCreate(RINGBUF_HIGHEST_WATER_LEVEL, RINGBUF_TYPE_BYTEBUF)) == NULL) {
+        ESP_LOGE(BT_I2S_TAG, "%s, rx ringbuffer create failed", __func__);
+        return;
+    }
+    if ((s_i2s_hfp_tx_ringbuf = xRingbufferCreate(RINGBUF_HIGHEST_WATER_LEVEL, RINGBUF_TYPE_BYTEBUF)) == NULL) {
+        ESP_LOGE(BT_I2S_TAG, "%s, tx ringbuffer create failed", __func__);
+        return;
+    }
+    start_i2s_rx_timer();
+    xTaskCreate(s_bt_i2s_hfp_rx_task_handler, "BtI2SRxTask", 2048, NULL, configMAX_PRIORITIES - 3, &s_bt_i2s_hfp_rx_task_handle);
+    xTaskCreate(s_bt_i2s_hfp_tx_task_handler, "BtI2SRxTask", 2048, NULL, configMAX_PRIORITIES - 3, &s_bt_i2s_hfp_tx_task_handle);
+}
+
+
+
+void bt_i2s_hfp_task_shut_down(void)
+{
+    if (s_bt_i2s_hfp_rx_task_handle) {
+        vTaskDelete(s_bt_i2s_hfp_rx_task_handle);
+        s_bt_i2s_hfp_rx_task_handle = NULL;
+    }
+    if (s_bt_i2s_hfp_tx_task_handle) {
+        vTaskDelete(s_bt_i2s_hfp_tx_task_handle);
+        s_bt_i2s_hfp_tx_task_handle = NULL;
+    }
+    if (s_i2s_hfp_rx_ringbuf) {
+        vRingbufferDelete(s_i2s_hfp_rx_ringbuf);
+        s_i2s_hfp_rx_ringbuf = NULL;
+    }
+    if (s_i2s_hfp_tx_ringbuf) {
+        vRingbufferDelete(s_i2s_hfp_tx_ringbuf);
+        s_i2s_hfp_tx_ringbuf = NULL;
+    }
+    stop_i2s_rx_timer();
+    if (s_i2s_hfp_rx_semaphore) {
+        vSemaphoreDelete(s_i2s_hfp_rx_semaphore);
+        s_i2s_hfp_rx_semaphore = NULL;
+    }
+    if (s_i2s_hfp_tx_semaphore) {
+        vSemaphoreDelete(s_i2s_hfp_tx_semaphore);
+        s_i2s_hfp_tx_semaphore = NULL;
+    }
+    bt_i2s_tx_channel_disable();
+    bt_i2s_rx_channel_disable();
+    bt_i2s_channels_config_adp();// i2s task for adp is a loose cannon. once we give our semaphore it'll start sending data
+}
+
+size_t write_ringbuf(const uint8_t *data, uint32_t size)
+{
+    size_t item_size = 0;
+    BaseType_t done = pdFALSE;
+
+    if (ringbuffer_mode == RINGBUFFER_MODE_DROPPING) {
+        ESP_LOGW(BT_I2S_TAG, "%s - ringbuffer is full, drop this packet!", __func__);
+        vRingbufferGetInfo(s_ringbuf_i2s, NULL, NULL, NULL, NULL, &item_size);
+        if (item_size <= RINGBUF_PREFETCH_WATER_LEVEL) {
+            ESP_LOGI(BT_I2S_TAG, "%s - ringbuffer data decreased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
+            ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
+        }
+        return 0;
+    }
+    // ESP_LOGI(BT_I2S_TAG, "%s - sending tx size %lu to the ringbuffer", __func__, size);
+    done = xRingbufferSend(s_ringbuf_i2s, (void *)data, size, (TickType_t)0);
 
     if (!done) {
         ESP_LOGW(BT_I2S_TAG, "%s - ringbuffer overflowed, ready to decrease data! mode changed: RINGBUFFER_MODE_DROPPING", __func__);
@@ -473,15 +608,98 @@ void read_data_stream(const uint8_t *data, uint32_t length)
     }
 
     if (ringbuffer_mode == RINGBUFFER_MODE_PREFETCHING) {
-        vRingbufferGetInfo(s_i2s_a2dp_tx_ringbuf, NULL, NULL, NULL, NULL, &item_size);
+        vRingbufferGetInfo(s_ringbuf_i2s, NULL, NULL, NULL, NULL, &item_size);
         if (item_size >= RINGBUF_PREFETCH_WATER_LEVEL) {
             ESP_LOGI(BT_I2S_TAG, "%s - ringbuffer data increased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
             ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
-            if (pdFALSE == xSemaphoreGive(s_i2s_a2dp_tx_semaphore)) {// how give it when we haven't taken it yet???
+            if (pdFALSE == xSemaphoreGive(s_i2s_write_semaphore)) {
                 ESP_LOGE(BT_I2S_TAG, "%s - semphore give failed", __func__);
             }
         }
     }
 
-    // return done ? size : 0;
+    return done ? size : 0;
+}
+
+size_t write_rx_ringbuf(char *data, uint32_t size)
+{
+    size_t item_size = 0;
+    BaseType_t done = pdFALSE;
+
+    if (rx_ringbuffer_mode == RINGBUFFER_MODE_DROPPING) {
+        ESP_LOGW(BT_I2S_TAG, "%s - ringbuffer is full, drop this packet!", __func__);
+        vRingbufferGetInfo(s_i2s_hfp_rx_ringbuf, NULL, NULL, NULL, NULL, &item_size);
+        if (item_size <= RINGBUF_PREFETCH_WATER_LEVEL) {
+            ESP_LOGI(BT_I2S_TAG, "%s - ringbuffer data decreased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
+            rx_ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
+        }
+        return 0;
+    }
+    // ESP_LOGI(BT_I2S_TAG, "sending rx size %lu to the ringbuffer", size);
+    done = xRingbufferSend(s_i2s_hfp_rx_ringbuf, (void *)data, size, (TickType_t)0);
+
+    if (!done) {
+        ESP_LOGW(BT_I2S_TAG, "%s - ringbuffer overflowed, ready to decrease data! mode changed: RINGBUFFER_MODE_DROPPING", __func__);
+        rx_ringbuffer_mode = RINGBUFFER_MODE_DROPPING;
+    }
+
+    if (rx_ringbuffer_mode == RINGBUFFER_MODE_PREFETCHING) {
+        vRingbufferGetInfo(s_i2s_hfp_rx_ringbuf, NULL, NULL, NULL, NULL, &item_size);
+        if (item_size >= RINGBUF_PREFETCH_WATER_LEVEL) {
+            ESP_LOGI(BT_I2S_TAG, "%s - ringbuffer data increased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
+            rx_ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
+            if (pdFALSE == xSemaphoreGive(s_i2s_hfp_rx_semaphore)) {
+                ESP_LOGE(BT_I2S_TAG, "%s - semphore give failed", __func__);
+            }
+        }
+    }
+
+    return done ? size : 0;
+}
+
+uint32_t read_ringbuf(uint8_t *p_buf, uint32_t sz)
+{
+    // ESP_LOGE(BT_I2S_TAG, "%s", __func__);
+    if (!s_ringbuf_i2s_rx) {
+        return 0;
+    }
+    size_t item_size = 0;
+    uint8_t *data = xRingbufferReceiveUpTo(s_ringbuf_i2s_rx, &item_size, 0, sz);
+    // ESP_LOGE(BT_I2S_TAG, "requested size is %lu size is %zu", sz, item_size);
+    if (item_size == sz) {
+        memcpy(p_buf, data, item_size);
+        vRingbufferReturnItem(s_ringbuf_i2s_rx, data);
+        return sz;
+    } else if (0 < item_size) {
+        vRingbufferReturnItem(s_ringbuf_i2s_rx, data);
+        return 0;
+    } else {
+        // data not enough, do not read
+        return 0;
+    }
+}
+
+// typedef void (* esp_hf_client_incoming_data_cb_t)(const uint8_t *buf, uint32_t len);
+// this is our mono data we receive from hfp ag and put in the ringbuf
+// the tx task will forward to our i2s tx channel
+// this is a bitch, for we need to swap bytes; and we want to do it here!
+// https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/i2s.html#std-tx-mode
+// for now we just set i2s to 32 bit and we're all good
+void bt_app_hf_client_incoming_data_cb(const uint8_t *buf, uint32_t len)
+{
+    // ESP_LOGI(BT_HF_TAG, "%s got: %lu", __func__, len);
+    BaseType_t done = pdFALSE;
+    // u_int8_t i2s_tx_buff[len];
+    // for (int i = 0; i < len; i++)
+    // {
+    //     i2s_tx_buff[i] = buf[i];
+    // }
+    // int written = write_ringbuf(i2s_tx_buff, len);
+    done = xRingbufferSend(s_ringbuf_i2s_tx, buf, len, (TickType_t)0);
+    if (!done) {
+        ESP_LOGW(BT_I2S_TAG, "%s - ringbuffer overflowed", __func__);
+    }
+    if (pdFALSE == xSemaphoreGive(s_i2s_tx_write_semaphore)) {
+        ESP_LOGE(BT_I2S_TAG, "%s - semphore give failed", __func__);
+    }
 }

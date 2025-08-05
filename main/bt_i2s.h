@@ -9,7 +9,7 @@ extern "C" {
 #include <stdint.h>
 #include "driver/i2s_std.h"
 
-#define BT_I2S_TAG "BT_I2S"
+
 
 typedef struct I2S_pin_config
 {
