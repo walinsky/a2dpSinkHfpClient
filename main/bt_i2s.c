@@ -21,13 +21,22 @@
 #include "freertos/task.h"
 #include "freertos/ringbuf.h"
 
-
 #include "sys/lock.h"
+
+// #include "driver/i2s_types.h"
+// #include "driver/i2s_pdm.h"
+// #include "esp_audio_dec.h"
+#include "esp_sbc_def.h"
+#include "esp_audio_dec_reg.h"
+#include "esp_audio_enc_reg.h"
+#include "esp_sbc_dec.h"
+#include "esp_sbc_enc.h"
+#include "esp_hf_defs.h"
 
 #define BT_I2S_TAG "BT_I2S"
 
 #define HFP_SAMPLE_RATE                 16000
-#define HFP_I2S_DATA_BIT_WIDTH          I2S_DATA_BIT_WIDTH_32BIT
+#define HFP_I2S_DATA_BIT_WIDTH          I2S_DATA_BIT_WIDTH_16BIT
 #define A2DP_STANDARD_SAMPLE_RATE       44100
 #define A2DP_I2S_DATA_BIT_WIDTH         I2S_DATA_BIT_WIDTH_16BIT
 #define RINGBUF_HIGHEST_WATER_LEVEL     (32 * 1024)
@@ -75,8 +84,8 @@ static esp_timer_handle_t s_i2s_rx_timer = NULL;
 */
 int A2DP_SAMPLE_RATE =           A2DP_STANDARD_SAMPLE_RATE; // this might be changed by a avrc event
 int A2DP_CH_COUNT =              I2S_SLOT_MODE_STEREO;
-bool tx_chan_running =           false;
-bool rx_chan_running =           false;
+bool tx_chan_running =           false; // do we need this? we can check if tx_chan is NULL
+bool rx_chan_running =           false; // do we need this? we can check if rx_chan is NULL
 I2S_pin_config i2sTxPinConfig = { 26, 17, 25, 0 };
 I2S_pin_config i2sRxPinConfig = { 16, 27, 0, 14 };
 // our channel handles
@@ -116,9 +125,9 @@ void bt_i2s_init() {
         return;
     }
     bt_i2s_init_tx_chan();
-    bt_i2s_a2dp_task_init();
-    bt_i2s_a2dp_task_start_up();
-    // b2_i2s_init_rx_chan();
+    // bt_i2s_a2dp_task_init();
+    // bt_i2s_a2dp_task_start_up();
+    bt_i2s_init_rx_chan();
     // bt_i2s_hfp_task_init();
     // bt_i2s_hfp_task_start_up();
 }
@@ -127,12 +136,6 @@ void bt_i2s_init() {
 /*  
     I2S mgmnt
 */
-i2s_chan_config_t bt_i2s_get_tx_chan_config(void)
-{
-    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-    chan_cfg.auto_clear = true;
-    return chan_cfg;
-}
 
 i2s_std_clk_config_t bt_i2s_get_hfp_clk_cfg(void)
 {
@@ -143,7 +146,7 @@ i2s_std_clk_config_t bt_i2s_get_hfp_clk_cfg(void)
 
 i2s_std_slot_config_t bt_i2s_get_hfp_tx_slot_cfg(void)
 {
-    i2s_std_slot_config_t hfp_slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(HFP_I2S_DATA_BIT_WIDTH, I2S_SLOT_MODE_MONO);
+    i2s_std_slot_config_t hfp_slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(HFP_I2S_DATA_BIT_WIDTH, I2S_SLOT_MODE_MONO);
     hfp_slot_cfg.slot_mask = I2S_STD_SLOT_BOTH;
     ESP_LOGI(BT_I2S_TAG, "reconfiguring hfp tx slot to data bit width:  %d", HFP_I2S_DATA_BIT_WIDTH);
     return hfp_slot_cfg;
@@ -221,15 +224,18 @@ void bt_i2s_driver_install(void)
 
 void bt_i2s_driver_uninstall(void)
 {
+    ESP_LOGI(BT_I2S_TAG, "%s", __func__);
     if (tx_chan_running)
         {
         bt_i2s_tx_channel_disable();
         ESP_ERROR_CHECK(i2s_del_channel(tx_chan));
+        ESP_LOGI(BT_I2S_TAG, "tx_chan pointer: %p", tx_chan);
         }
     if (rx_chan_running)
         {
         bt_i2s_rx_channel_disable();
         ESP_ERROR_CHECK(i2s_del_channel(rx_chan));
+        ESP_LOGI(BT_I2S_TAG, "rx_chan pointer: %p", rx_chan);
         }
 }
 
@@ -389,7 +395,7 @@ void bt_i2s_a2dp_task_init(void)
         ESP_LOGE(BT_I2S_TAG, "%s, ringbuffer create failed", __func__);
         return;
     }
-    xTaskCreate(bt_i2s_a2dp_tx_task_handler, "BtI2STask", 2048, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_a2dp_tx_task_handle);
+    xTaskCreate(bt_i2s_a2dp_tx_task_handler, "BtI2Sa2dpTask", 2048, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_a2dp_tx_task_handle);
 }
 
 void bt_i2s_a2dp_task_deinit(void)
@@ -490,216 +496,313 @@ void read_data_stream(const uint8_t *data, uint32_t length)
     // return done ? size : 0;
 }
 
-/*
-    HFP
-*/
-void setup_i2s_rx_timer()
+/* 
+    this sets up our hfp ringbuffers, and (just) creates the hfp tx and task handlers
+ */
+void bt_i2s_hfp_task_init(void)
 {
-    const esp_timer_create_args_t periodic_timer_args = {
-            .callback = &bt_i2s_hfp_rx_timer_callback,
-            /* name is optional, but may help identify the timer when debugging */
-            .name = "i2s_rx_periodic"
-    };
-
-    ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &s_i2s_rx_timer));
-    /* The timer has been created but is not running yet */
-    
-}
-
-void bt_i2s_hfp_start_rx_timer()
-{
-    ESP_ERROR_CHECK(esp_timer_start_periodic(s_i2s_rx_timer, PCM_BLOCK_DURATION_US));
-}
-
-void bt_i2s_hfp_stop_rx_timer()
-{
-    ESP_ERROR_CHECK(esp_timer_stop(s_i2s_rx_timer));
-}
-
- static void bt_i2s_hfp_rx_timer_callback(void* arg)
-{
-    if (s_i2s_rx_write_semaphore != NULL) {
-        xSemaphoreGive(s_i2s_rx_write_semaphore);
-    }
-}
-
-void bt_i2s_hfp_task_start_up(void)
-{
-    // bt_app_set_i2s_tx_mode_hfp(); // s_i2s_tx_mode = I2S_TX_MODE_HFP;
-//done in init()
-    // bt_i2s_channels_config_hfp();
-    // bt_i2s_tx_channel_enable();
-    // bt_i2s_rx_channel_enable();
-    // if ((s_i2s_hfp_rx_semaphore = xSemaphoreCreateBinary()) == NULL) {
-    //     ESP_LOGE(BT_I2S_TAG, "%s, rx Semaphore create failed", __func__);
-    //     return;
-    // }
-    // if ((s_i2s_hfp_tx_semaphore = xSemaphoreCreateBinary()) == NULL) {
-    //     ESP_LOGE(BT_I2S_TAG, "%s, tx Semaphore create failed", __func__);
-    //     return;
-    // }
-    if ((s_i2s_hfp_rx_ringbuf = xRingbufferCreate(RINGBUF_HIGHEST_WATER_LEVEL, RINGBUF_TYPE_BYTEBUF)) == NULL) {
-        ESP_LOGE(BT_I2S_TAG, "%s, rx ringbuffer create failed", __func__);
-        return;
-    }
+    s_i2s_hfp_tx_ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
     if ((s_i2s_hfp_tx_ringbuf = xRingbufferCreate(RINGBUF_HIGHEST_WATER_LEVEL, RINGBUF_TYPE_BYTEBUF)) == NULL) {
-        ESP_LOGE(BT_I2S_TAG, "%s, tx ringbuffer create failed", __func__);
+        ESP_LOGE(BT_I2S_TAG, "%s, hfp tx ringbuffer create failed", __func__);
         return;
     }
-    start_i2s_rx_timer();
-    xTaskCreate(s_bt_i2s_hfp_rx_task_handler, "BtI2SRxTask", 2048, NULL, configMAX_PRIORITIES - 3, &s_bt_i2s_hfp_rx_task_handle);
-    xTaskCreate(s_bt_i2s_hfp_tx_task_handler, "BtI2SRxTask", 2048, NULL, configMAX_PRIORITIES - 3, &s_bt_i2s_hfp_tx_task_handle);
+    xTaskCreate(bt_i2s_hfp_tx_task_handler, "BtI2ShfpTxTask", 2048, NULL, configMAX_PRIORITIES - 3, &s_bt_i2s_hfp_tx_task_handle);
+    if ((s_i2s_hfp_rx_ringbuf = xRingbufferCreate(RINGBUF_HIGHEST_WATER_LEVEL, RINGBUF_TYPE_BYTEBUF)) == NULL) {
+        ESP_LOGE(BT_I2S_TAG, "%s, hfp rx ringbuffer create failed", __func__);
+        return;
+    }
+    xTaskCreate(bt_i2s_hfp_rx_task_handler, "BtI2ShfpRxTask", 4096, NULL, configMAX_PRIORITIES - 3, &s_bt_i2s_hfp_rx_task_handle);
 }
 
-
-
-void bt_i2s_hfp_task_shut_down(void)
+void bt_i2s_hfp_task_deinit(void)
 {
-    if (s_bt_i2s_hfp_rx_task_handle) {
-        vTaskDelete(s_bt_i2s_hfp_rx_task_handle);
-        s_bt_i2s_hfp_rx_task_handle = NULL;
-    }
     if (s_bt_i2s_hfp_tx_task_handle) {
         vTaskDelete(s_bt_i2s_hfp_tx_task_handle);
         s_bt_i2s_hfp_tx_task_handle = NULL;
-    }
-    if (s_i2s_hfp_rx_ringbuf) {
-        vRingbufferDelete(s_i2s_hfp_rx_ringbuf);
-        s_i2s_hfp_rx_ringbuf = NULL;
     }
     if (s_i2s_hfp_tx_ringbuf) {
         vRingbufferDelete(s_i2s_hfp_tx_ringbuf);
         s_i2s_hfp_tx_ringbuf = NULL;
     }
-    stop_i2s_rx_timer();
-    if (s_i2s_hfp_rx_semaphore) {
-        vSemaphoreDelete(s_i2s_hfp_rx_semaphore);
-        s_i2s_hfp_rx_semaphore = NULL;
+    if (s_bt_i2s_hfp_rx_task_handle) {
+        vTaskDelete(s_bt_i2s_hfp_rx_task_handle);
+        s_bt_i2s_hfp_rx_task_handle = NULL;
     }
-    if (s_i2s_hfp_tx_semaphore) {
-        vSemaphoreDelete(s_i2s_hfp_tx_semaphore);
-        s_i2s_hfp_tx_semaphore = NULL;
+    if (s_i2s_hfp_rx_ringbuf) {
+        vRingbufferDelete(s_i2s_hfp_rx_ringbuf);
+        s_i2s_hfp_rx_ringbuf = NULL;
     }
-    bt_i2s_tx_channel_disable();
-    bt_i2s_rx_channel_disable();
-    bt_i2s_channels_config_adp();// i2s task for adp is a loose cannon. once we give our semaphore it'll start sending data
 }
 
-size_t write_ringbuf(const uint8_t *data, uint32_t size)
+/* 
+    fetch audio data from the hfp tx ringbuffer and write to i2s
+ */
+void bt_i2s_hfp_tx_task_handler(void *arg)
+{
+    uint8_t *data = NULL;
+    size_t item_size = 0;
+    /**
+     * The total length of DMA buffer of I2S is:
+     * `dma_frame_num * dma_desc_num * i2s_channel_num * i2s_data_bit_width / 8`.
+     * Transmit `dma_frame_num * dma_desc_num` bytes to DMA is trade-off.
+     */
+    const size_t item_size_upto = 240 * 6;
+    size_t bytes_written = 0;
+    for (;;) {
+        // if (pdTRUE == xSemaphoreTake(s_i2s_tx_semaphore, portMAX_DELAY)) {
+            for (;;) {
+                item_size = 0;
+                /* receive data from ringbuffer and write it to I2S DMA transmit buffer */
+                data = (uint8_t *)xRingbufferReceiveUpTo(s_i2s_hfp_tx_ringbuf, &item_size, 10000, item_size_upto);
+                if (item_size == 0) {
+                    ESP_LOGI(BT_I2S_TAG, "%s - tx ringbuffer underflowed! mode changed: RINGBUFFER_MODE_PREFETCHING", __func__);
+                    s_i2s_hfp_tx_ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
+                    break;
+                }
+                if (s_i2s_tx_mode == I2S_TX_MODE_HFP) { // we discard the data if we are not in hfp mode
+                    i2s_channel_write(tx_chan, data, item_size, &bytes_written, portMAX_DELAY);
+                }
+                vRingbufferReturnItem(s_i2s_hfp_tx_ringbuf, (void *)data);
+            }
+        // }
+    }
+}
+
+/* 
+    fetch audio (mic) data from i2s and put it in the rx ringbuffer
+ */
+void bt_i2s_hfp_rx_task_handler(void *arg)
+{
+    // Codec (code & decode) for HFP is mSBC with specific parameters.
+    // It transfers 240 Bytes every 7.5 ms. So we need to create a 240 Byte (120 16bit mono samples) output buffer every 7.5ms.
+    // Our mems microphone on I2S is 32bit; we get both left and right channels. This totals 64 bits, or 8 bytes, per sample.
+    // So for every 64bit (8 byte) input sample we get a 16bit (2 byte) output sample
+    const size_t item_size_upto = 120 * 8; // input sample bytes
+    char *i2s_rx_buff = calloc(item_size_upto, sizeof(char));
+    unsigned char *send_buff = calloc(item_size_upto / 4, sizeof(char)); // every 8 input bytes(64 bit) give us 2 output bytes (16bits)
+
+    size_t bytes_read;
+    uint32_t bytes_written;
+
+    esp_audio_enc_out_frame_t out_frame = {0};
+
+    while (true) {
+        char *buf_ptr_read = i2s_rx_buff;
+        unsigned char *buf_ptr_write = send_buff;
+        // Read the RAW samples from the microphone
+        if (i2s_channel_read(rx_chan, i2s_rx_buff, item_size_upto, &bytes_read, 1000) == ESP_OK) {
+            int raw_samples_read = bytes_read / 2 / (I2S_DATA_BIT_WIDTH_32BIT / 8); // raw samples = bytes read / 2 channels / 4 bytes per channel
+            for (int i = 0; i < raw_samples_read; i++)
+            {
+                // left channel (mono)
+                buf_ptr_write[0] = buf_ptr_read[2]; // mid
+                buf_ptr_write[1] = buf_ptr_read[3]; // high
+                buf_ptr_write += 1 * (I2S_DATA_BIT_WIDTH_16BIT / 8); // 1 channel mono; step our pointer 1 x 2 bytes
+                buf_ptr_read += 2 * (I2S_DATA_BIT_WIDTH_32BIT / 8); // 2 channel stereo; step our pointer 2 * 4 bytes
+            }
+            // sbc encode before putting on ringbuf!
+            sbc_encoder(send_buff, 240, &out_frame);
+            if (out_frame.len > ESP_HF_MSBC_ENCODED_FRAME_SIZE) {
+                /*
+                 * in mSBC air mode, we may receive a mSBC frame with some padding bytes at the end,
+                 * but esp_hf_client_audio_data_send API do not allow adding padding bytes at the end,
+                 * so we need to remove those padding bytes before send back to peer device.
+                 */
+                out_frame.len = ESP_HF_MSBC_ENCODED_FRAME_SIZE;
+            }
+
+            bt_i2s_hfp_write_rx_ringbuf(out_frame.buffer, out_frame.len);
+
+            // unsigned int high_watermark = uxTaskGetStackHighWaterMark(NULL);
+            // ESP_LOGI(BT_I2S_TAG, "%s stack high watermark %d", __func__, high_watermark);
+            if (s_i2s_hfp_rx_ringbuffer_mode != RINGBUFFER_MODE_PREFETCHING) {
+                // esp_hf_client_outgoing_data_ready(); // After this function is called, lower layer will invoke esp_hf_client_outgoing_data_cb_t to fetch data.
+            }
+        } else {
+            ESP_LOGI(BT_I2S_TAG, "hfp i2s read Failed!");
+        }
+    }
+}
+
+/* 
+    this is our called from hfp and recieves the audio data
+    and puts it in the tx ringbuffer
+ */
+void bt_i2s_hfp_write_tx_ringbuf(const uint8_t *data, uint32_t size)
 {
     size_t item_size = 0;
     BaseType_t done = pdFALSE;
 
-    if (ringbuffer_mode == RINGBUFFER_MODE_DROPPING) {
-        ESP_LOGW(BT_I2S_TAG, "%s - ringbuffer is full, drop this packet!", __func__);
-        vRingbufferGetInfo(s_ringbuf_i2s, NULL, NULL, NULL, NULL, &item_size);
+    if (s_i2s_hfp_tx_ringbuffer_mode == RINGBUFFER_MODE_DROPPING) {
+        ESP_LOGW(BT_I2S_TAG, "%s - hfp tx ringbuffer is full, drop this packet!", __func__);
+        vRingbufferGetInfo(s_i2s_hfp_tx_ringbuf, NULL, NULL, NULL, NULL, &item_size);
         if (item_size <= RINGBUF_PREFETCH_WATER_LEVEL) {
-            ESP_LOGI(BT_I2S_TAG, "%s - ringbuffer data decreased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
-            ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
+            ESP_LOGI(BT_I2S_TAG, "%s - hfp tx ringbuffer data decreased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
+            s_i2s_hfp_tx_ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
         }
-        return 0;
+        return;
     }
     // ESP_LOGI(BT_I2S_TAG, "%s - sending tx size %lu to the ringbuffer", __func__, size);
-    done = xRingbufferSend(s_ringbuf_i2s, (void *)data, size, (TickType_t)0);
+    done = xRingbufferSend(s_i2s_hfp_tx_ringbuf, (void *)data, size, (TickType_t)0);
 
     if (!done) {
-        ESP_LOGW(BT_I2S_TAG, "%s - ringbuffer overflowed, ready to decrease data! mode changed: RINGBUFFER_MODE_DROPPING", __func__);
-        ringbuffer_mode = RINGBUFFER_MODE_DROPPING;
+        ESP_LOGW(BT_I2S_TAG, "%s - hfp tx ringbuffer overflowed, ready to decrease data! mode changed: RINGBUFFER_MODE_DROPPING", __func__);
+        s_i2s_hfp_tx_ringbuffer_mode = RINGBUFFER_MODE_DROPPING;
     }
 
-    if (ringbuffer_mode == RINGBUFFER_MODE_PREFETCHING) {
-        vRingbufferGetInfo(s_ringbuf_i2s, NULL, NULL, NULL, NULL, &item_size);
+    if (s_i2s_hfp_tx_ringbuffer_mode == RINGBUFFER_MODE_PREFETCHING) {
+        vRingbufferGetInfo(s_i2s_hfp_tx_ringbuf, NULL, NULL, NULL, NULL, &item_size);
         if (item_size >= RINGBUF_PREFETCH_WATER_LEVEL) {
-            ESP_LOGI(BT_I2S_TAG, "%s - ringbuffer data increased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
-            ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
-            if (pdFALSE == xSemaphoreGive(s_i2s_write_semaphore)) {
-                ESP_LOGE(BT_I2S_TAG, "%s - semphore give failed", __func__);
-            }
+            ESP_LOGI(BT_I2S_TAG, "%s - hfp tx ringbuffer data increased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
+            s_i2s_hfp_tx_ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
+            // if (pdFALSE == xSemaphoreGive(s_i2s_tx_semaphore)) {// we have taken the semaphore in our tx task(?)
+            //     ESP_LOGE(BT_I2S_TAG, "%s - semphore give failed", __func__);
+            // }
         }
     }
-
-    return done ? size : 0;
 }
 
-size_t write_rx_ringbuf(char *data, uint32_t size)
+/* 
+    this is our called from our i2s hfp rx task and recieves the (mic) audio data
+    and puts it in the rx ringbuffer
+ */
+void bt_i2s_hfp_write_rx_ringbuf(unsigned char *data, uint32_t size)
 {
     size_t item_size = 0;
     BaseType_t done = pdFALSE;
 
-    if (rx_ringbuffer_mode == RINGBUFFER_MODE_DROPPING) {
-        ESP_LOGW(BT_I2S_TAG, "%s - ringbuffer is full, drop this packet!", __func__);
+    if (s_i2s_hfp_rx_ringbuffer_mode == RINGBUFFER_MODE_DROPPING) {
+        ESP_LOGW(BT_I2S_TAG, "%s - hfp rx ringbuffer is full, drop this packet!", __func__);
         vRingbufferGetInfo(s_i2s_hfp_rx_ringbuf, NULL, NULL, NULL, NULL, &item_size);
         if (item_size <= RINGBUF_PREFETCH_WATER_LEVEL) {
-            ESP_LOGI(BT_I2S_TAG, "%s - ringbuffer data decreased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
-            rx_ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
+            ESP_LOGI(BT_I2S_TAG, "%s - hfp rx ringbuffer data decreased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
+            s_i2s_hfp_rx_ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
         }
-        return 0;
+        return;
     }
-    // ESP_LOGI(BT_I2S_TAG, "sending rx size %lu to the ringbuffer", size);
-    done = xRingbufferSend(s_i2s_hfp_rx_ringbuf, (void *)data, size, (TickType_t)0);
+    // ESP_LOGI(BT_I2S_TAG, "%s - sending tx size %lu to the ringbuffer", __func__, size);
+    done = xRingbufferSend(s_i2s_hfp_rx_ringbuf, (const char*)data, size, (TickType_t)0);
 
     if (!done) {
-        ESP_LOGW(BT_I2S_TAG, "%s - ringbuffer overflowed, ready to decrease data! mode changed: RINGBUFFER_MODE_DROPPING", __func__);
-        rx_ringbuffer_mode = RINGBUFFER_MODE_DROPPING;
+        ESP_LOGW(BT_I2S_TAG, "%s - hfp rx ringbuffer overflowed, ready to decrease data! mode changed: RINGBUFFER_MODE_DROPPING", __func__);
+        s_i2s_hfp_rx_ringbuffer_mode = RINGBUFFER_MODE_DROPPING;
     }
 
-    if (rx_ringbuffer_mode == RINGBUFFER_MODE_PREFETCHING) {
+    if (s_i2s_hfp_rx_ringbuffer_mode == RINGBUFFER_MODE_PREFETCHING) {
         vRingbufferGetInfo(s_i2s_hfp_rx_ringbuf, NULL, NULL, NULL, NULL, &item_size);
         if (item_size >= RINGBUF_PREFETCH_WATER_LEVEL) {
-            ESP_LOGI(BT_I2S_TAG, "%s - ringbuffer data increased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
-            rx_ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
-            if (pdFALSE == xSemaphoreGive(s_i2s_hfp_rx_semaphore)) {
-                ESP_LOGE(BT_I2S_TAG, "%s - semphore give failed", __func__);
-            }
+            ESP_LOGI(BT_I2S_TAG, "%s - hfp rx ringbuffer data increased! mode changed: RINGBUFFER_MODE_PROCESSING", __func__);
+            s_i2s_hfp_rx_ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
+            // if (pdFALSE == xSemaphoreGive(s_i2s_tx_semaphore)) {// we have taken the semaphore in our tx task(?)
+            //     ESP_LOGE(BT_I2S_TAG, "%s - semphore give failed", __func__);
+            // }
         }
     }
-
-    return done ? size : 0;
 }
 
-uint32_t read_ringbuf(uint8_t *p_buf, uint32_t sz)
+/* 
+    this is called from hfp client for getting the (mic) audio data from the rx ringbuffer
+ */
+void bt_i2s_hfp_read_rx_ringbuf(esp_hf_audio_buff_t *mic_data)
 {
-    // ESP_LOGE(BT_I2S_TAG, "%s", __func__);
-    if (!s_ringbuf_i2s_rx) {
-        return 0;
-    }
+    uint8_t *data = NULL;
     size_t item_size = 0;
-    uint8_t *data = xRingbufferReceiveUpTo(s_ringbuf_i2s_rx, &item_size, 0, sz);
-    // ESP_LOGE(BT_I2S_TAG, "requested size is %lu size is %zu", sz, item_size);
-    if (item_size == sz) {
-        memcpy(p_buf, data, item_size);
-        vRingbufferReturnItem(s_ringbuf_i2s_rx, data);
-        return sz;
-    } else if (0 < item_size) {
-        vRingbufferReturnItem(s_ringbuf_i2s_rx, data);
-        return 0;
-    } else {
-        // data not enough, do not read
-        return 0;
-    }
+    /* receive data from ringbuffer and write it to I2S DMA transmit buffer */
+    data = (uint8_t *)xRingbufferReceiveUpTo(s_i2s_hfp_rx_ringbuf, &item_size, 10000, ESP_HF_MSBC_ENCODED_FRAME_SIZE);
+    mic_data->data = data;
+    mic_data->buff_size = item_size;
+    mic_data->data_len = item_size;
+    vRingbufferReturnItem(s_i2s_hfp_rx_ringbuf, (void *)data);
 }
 
-// typedef void (* esp_hf_client_incoming_data_cb_t)(const uint8_t *buf, uint32_t len);
-// this is our mono data we receive from hfp ag and put in the ringbuf
-// the tx task will forward to our i2s tx channel
-// this is a bitch, for we need to swap bytes; and we want to do it here!
-// https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/i2s.html#std-tx-mode
-// for now we just set i2s to 32 bit and we're all good
-void bt_app_hf_client_incoming_data_cb(const uint8_t *buf, uint32_t len)
+void bt_i2s_hfp_start()
 {
-    // ESP_LOGI(BT_HF_TAG, "%s got: %lu", __func__, len);
-    BaseType_t done = pdFALSE;
-    // u_int8_t i2s_tx_buff[len];
-    // for (int i = 0; i < len; i++)
-    // {
-    //     i2s_tx_buff[i] = buf[i];
-    // }
-    // int written = write_ringbuf(i2s_tx_buff, len);
-    done = xRingbufferSend(s_ringbuf_i2s_tx, buf, len, (TickType_t)0);
-    if (!done) {
-        ESP_LOGW(BT_I2S_TAG, "%s - ringbuffer overflowed", __func__);
-    }
-    if (pdFALSE == xSemaphoreGive(s_i2s_tx_write_semaphore)) {
-        ESP_LOGE(BT_I2S_TAG, "%s - semphore give failed", __func__);
-    }
+    s_i2s_tx_mode = I2S_TX_MODE_HFP;
+    bt_i2s_channels_config_hfp();
+    bt_i2s_tx_channel_enable();
+    bt_i2s_rx_channel_enable();
+    bt_i2s_hfp_task_init();
+}
+
+void bt_i2s_hfp_stop()
+{
+    s_i2s_tx_mode = I2S_TX_MODE_NONE;
+    bt_i2s_hfp_task_deinit();
+    bt_i2s_rx_channel_disable();
+    bt_i2s_tx_channel_disable();
+    bt_i2s_channels_config_adp();
+
+}
+
+void sbc_decoder(uint8_t *data, uint16_t data_len, esp_audio_dec_out_frame_t *out_frame)
+{
+    esp_sbc_dec_cfg_t dec_cfg = {
+        .ch_num = 1,
+        .sbc_mode = ESP_SBC_MODE_MSBC,
+    };
+    void *dec_handle = NULL;
+    esp_sbc_dec_open(&dec_cfg, sizeof(esp_sbc_dec_cfg_t), &dec_handle);
+
+    int inbuf_sz = data_len;
+    int outbuf_sz = 240;
+    uint8_t *inbuf = calloc(1, inbuf_sz);
+    uint8_t *outbuf = calloc(1, outbuf_sz);
+
+    esp_audio_dec_in_raw_t in_frame = {0};
+    
+    esp_audio_dec_info_t info = {0};
+    int inread = 0;
+
+    in_frame.buffer = data;
+    in_frame.len = data_len;
+    in_frame.consumed = 0;
+    in_frame.frame_recover = ESP_AUDIO_DEC_RECOVERY_NONE;
+    out_frame->buffer = outbuf;
+    out_frame->len = outbuf_sz;
+    int cnt = 0;
+    esp_audio_err_t dec_ret = esp_sbc_dec_decode(dec_handle, &in_frame, out_frame, &info);
+
+    free(inbuf);
+    free(outbuf);
+    esp_sbc_dec_close(dec_handle);
+}
+
+void sbc_encoder(uint8_t *data, uint16_t data_len, esp_audio_enc_out_frame_t *out_frame)
+{
+    esp_sbc_enc_config_t enc_cfg = {
+        .allocation_method = ESP_SBC_ALLOC_SNR,
+        .bitpool = ESP_HF_MSBC_BITPOOL,
+        .block_length = ESP_HF_MSBC_BLOCK_LENGTH,
+        .sub_bands_num = ESP_HF_MSBC_SUBBANDS,
+        .sample_rate = 16000,
+        .bits_per_sample = 16,
+        .ch_mode = ESP_SBC_CH_MODE_MONO,
+        .sbc_mode = ESP_SBC_MODE_MSBC,
+    };
+    void *enc_handle = NULL;
+    if (esp_sbc_enc_open(&enc_cfg, sizeof(esp_sbc_enc_config_t), &enc_handle) != ESP_AUDIO_ERR_OK) {
+        ESP_LOGE(BT_I2S_TAG, "%s, could not open sbc encoder", __func__);
+        return;
+    };
+    int inbuf_sz = 0;
+    int outbuf_sz = 0;
+    if (esp_sbc_enc_get_frame_size(enc_handle, &inbuf_sz, &outbuf_sz) != ESP_AUDIO_ERR_OK) {
+        ESP_LOGE(BT_I2S_TAG, "%s, could not get frame size", __func__);
+        return;
+    };
+    uint8_t *inbuf = calloc(1, inbuf_sz);
+    uint8_t *outbuf = calloc(1, outbuf_sz);
+    esp_audio_enc_in_frame_t in_frame = {0};
+    in_frame.buffer = data;
+    in_frame.len = data_len;
+    out_frame->buffer = outbuf;
+    out_frame->len = outbuf_sz;
+    if (esp_sbc_enc_process(enc_handle, &in_frame, out_frame) != ESP_AUDIO_ERR_OK) {
+        ESP_LOGE(BT_I2S_TAG, "could not encode");
+        return;
+    };
+    // ESP_LOGI(BT_I2S_TAG, "%s, encoded msbc data data len: %d encoded size: %d data: %p",__func__, out_frame->len, out_frame->encoded_bytes, out_frame->buffer);   
+    free(inbuf);
+    free(outbuf);
+    esp_sbc_enc_close(enc_handle);
 }
