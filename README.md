@@ -50,5 +50,7 @@ More than welcome.
 * fix i2s write semaphore(s)
 * start / stop hfp as a (none blocking) task
 * move to component
+* fix water levels for all ringbuffers
+* fix a2dp ringbuffer size when bit range changes
 * 
 
