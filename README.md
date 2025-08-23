@@ -44,4 +44,7 @@ Everything is here: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/
 ## Pull requests
 More than welcome.
 
-
+## todo
+* move codec from i2s to hfp
+* pull codec init out of funtions. init every 7.5 us is too expensive
+* fix i2s write semaphore(s)

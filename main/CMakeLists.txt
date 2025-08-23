@@ -1,4 +1,3 @@
-idf_component_register(SRCS "bt_app_volume_control.c" "bt_app_i2s.c" "bt_app_hf.c" "bt_app_av.c"
-                            "bt_app_core.c"
-                            "main.c"
+idf_component_register(SRCS "bt_hfp.c" "bt_i2s.c"
+                            "main.cpp"
                     INCLUDE_DIRS ".")

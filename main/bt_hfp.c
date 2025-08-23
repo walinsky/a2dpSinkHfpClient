@@ -1,36 +1,32 @@
-/*
- * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Unlicense OR CC0-1.0
- */
-
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
 #include "esp_log.h"
+#include "bt_i2s.h"
 
-#include "bt_app_core.h"
-#include "bt_app_hf.h"
+// #include "bt_app_core.h"
+// #include "bt_app_hf.h"
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
 #include "esp_gap_bt_api.h"
 #include "esp_hf_client_api.h"
-// #include "esp_pbac_api.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/queue.h"
-#include "freertos/semphr.h"
-#include "freertos/ringbuf.h"
-#include "time.h"
-#include "sys/time.h"
-#include "sdkconfig.h"
+// #include "esp_timer.h"
+// #include "freertos/FreeRTOS.h"
+// #include "freertos/task.h"
+// #include "freertos/queue.h"
+// #include "freertos/semphr.h"
+// #include "freertos/ringbuf.h"
+// #include "time.h"
+// #include "sys/time.h"
+// #include "sdkconfig.h"
+// #include "bt_app_i2s.h"
+// #include "osi/allocator.h"
 
-#include "bt_i2s.h"
+// todo: INP441
 
-
-
+#define BT_HFP_TAG "BT_HFP"
 
 const char *c_hf_evt_str[] = {
     "CONNECTION_STATE_EVT",              /*!< connection state changed event */
@@ -54,8 +50,6 @@ const char *c_hf_evt_str[] = {
     "INBAND_RING_TONE_EVT",              /*!< in-band ring tone settings */
     "LAST_VOICE_TAG_NUMBER_EVT",         /*!< requested number from AG event */
     "RING_IND_EVT",                      /*!< ring indication event */
-    "PKT_STAT_EVT",                      /*!< requested number of packet status event */
-    "PROF_STATE_EVT",                    /*!< Indicate HF CLIENT init or deinit complete */
 };
 
 // esp_hf_client_connection_state_t
@@ -179,178 +173,137 @@ extern esp_bd_addr_t peer_addr;
 // If you want to connect a specific device, add it's address here
 // esp_bd_addr_t peer_addr = {0xac, 0x67, 0xb2, 0x53, 0x77, 0xbe};
 
-extern i2s_chan_handle_t tx_chan;
-extern i2s_chan_handle_t rx_chan;
-
-static esp_hf_sync_conn_hdl_t s_sync_conn_hdl;
-static bool s_msbc_air_mode = false;
-// QueueHandle_t s_audio_buff_queue = NULL;
-// static int s_audio_buff_cnt = 0;
-
-static void bt_app_hf_client_audio_data_cb(esp_hf_sync_conn_hdl_t sync_conn_hdl, esp_hf_audio_buff_t *audio_buf, bool is_bad_frame)
-{
-    if (is_bad_frame) {
-        esp_hf_client_audio_buff_free(audio_buf);
-        return;
-    }
-    // decode our incoming data and send it to i2s
-    esp_audio_dec_out_frame_t out_frame = {0};
-    sbc_decoder(audio_buf->data, audio_buf->data_len, &out_frame);
-    bt_i2s_hfp_write_tx_ringbuf(out_frame.buffer, out_frame.len);
-
-    // fetch our msbc encoded mic data and send it to the ag
-    esp_hf_audio_buff_t *audio_data_to_send = esp_hf_client_audio_buff_alloc(sizeof(*audio_data_to_send));
-    bt_i2s_hfp_read_rx_ringbuf(audio_data_to_send);
-    if (audio_data_to_send->data_len == 0) {
-        esp_hf_client_audio_buff_free(audio_data_to_send);
-        return;
-    }
-    /* send audio data back to AG */
-    // if (esp_hf_client_audio_data_send(s_sync_conn_hdl, audio_data_to_send) != ESP_OK) {
-    //     esp_hf_client_audio_buff_free(audio_data_to_send);
-    //     ESP_LOGW(BT_HF_TAG, "%s fail to send audio data", __func__);
-    // }
-}
-
-
 /* callback for HF_CLIENT */
-void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param)
+void bt_app_hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param)
 {
-    if (event <= ESP_HF_CLIENT_PROF_STATE_EVT) {
-        ESP_LOGI(BT_HF_TAG, "APP HFP event: %s", c_hf_evt_str[event]);
+    if (event <= ESP_HF_CLIENT_RING_IND_EVT) {
+        ESP_LOGI(BT_HFP_TAG, "APP HFP event: %s", c_hf_evt_str[event]);
     } else {
-        ESP_LOGE(BT_HF_TAG, "APP HFP invalid event %d", event);
+        ESP_LOGE(BT_HFP_TAG, "APP HFP invalid event %d", event);
     }
 
     switch (event) {
         case ESP_HF_CLIENT_CONNECTION_STATE_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--connection state %s, peer feats 0x%"PRIx32", chld_feats 0x%"PRIx32,
+            ESP_LOGI(BT_HFP_TAG, "--connection state %s, peer feats 0x%"PRIx32", chld_feats 0x%"PRIx32,
                     c_connection_state_str[param->conn_stat.state],
                     param->conn_stat.peer_feat,
                     param->conn_stat.chld_feat);
             memcpy(peer_addr,param->conn_stat.remote_bda,ESP_BD_ADDR_LEN);
-            if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED) {
-                // esp_pbac_connect(peer_addr);
-            }
             break;
         }
 
         case ESP_HF_CLIENT_AUDIO_STATE_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--audio state %s",
+            ESP_LOGI(BT_HFP_TAG, "--audio state %s",
                     c_audio_state_str[param->audio_stat.state]);
-    #if CONFIG_BT_HFP_AUDIO_DATA_PATH_HCI && CONFIG_BT_HFP_USE_EXTERNAL_CODEC
-            if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
-                s_msbc_air_mode = true;
-                ESP_LOGI(BT_HF_TAG, "--audio air mode: mSBC , preferred_frame_size: %d", param->audio_stat.preferred_frame_size);
-            }
-            else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
-                s_msbc_air_mode = false;
-                ESP_LOGI(BT_HF_TAG, "--audio air mode: CVSD , preferred_frame_size: %d", param->audio_stat.preferred_frame_size);
-            }
-
             if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
                 param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
-                s_sync_conn_hdl = param->audio_stat.sync_conn_handle;
-                bt_i2s_hfp_start();
-                esp_hf_client_register_audio_data_callback(bt_app_hf_client_audio_data_cb);
+                // bt_i2s_hfp_task_start_up(); // done in i2s (?)
+                // esp_hf_client_volume_update(ESP_HF_VOLUME_CONTROL_TARGET_SPK, 9);
+                // esp_hf_client_volume_update(ESP_HF_VOLUME_CONTROL_TARGET_MIC, 9);
+                ESP_LOGI(BT_HFP_TAG, "registering data callback");
+                // here we register both callbacks for hfp read and write
+                // arg0 sends the data to the tx data ringbuf
+                // arg1 reads the data from the rx ringbuf
+                // esp_hf_client_register_data_callback(bt_app_hf_client_tx_data_cb, read_ringbuf); 
+                // https://github.com/espressif/esp-idf/blob/master/examples/bluetooth/bluedroid/classic_bt/hfp_ag/main/bt_app_hf.c line 328
+                // https://github.com/infrasonicaudio/esp32-i2s-synth-example/blob/main/main/i2s_example_main.c
+                // taskYIELD() and portMAX_DELAY
             } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
-                s_sync_conn_hdl = 0;
-                s_msbc_air_mode = false;
-                bt_i2s_hfp_stop();
+                // bt_i2s_hfp_task_shut_down(); // done in I2S (?)
+                ESP_LOGI(BT_HFP_TAG, "--ESP HF Audio Connection Disconnected.");
             }
-    #endif /* #if CONFIG_BT_HFP_AUDIO_DATA_PATH_HCI && CONFIG_BT_HFP_USE_EXTERNAL_CODEC */
             break;
         }
 
         case ESP_HF_CLIENT_BVRA_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--VR state %s",
+            ESP_LOGI(BT_HFP_TAG, "--VR state %s",
                     c_vr_state_str[param->bvra.value]);
             break;
         }
 
         case ESP_HF_CLIENT_CIND_SERVICE_AVAILABILITY_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--NETWORK STATE %s",
+            ESP_LOGI(BT_HFP_TAG, "--NETWORK STATE %s",
                     c_service_availability_status_str[param->service_availability.status]);
             break;
         }
 
         case ESP_HF_CLIENT_CIND_ROAMING_STATUS_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--ROAMING: %s",
+            ESP_LOGI(BT_HFP_TAG, "--ROAMING: %s",
                     c_roaming_status_str[param->roaming.status]);
             break;
         }
 
         case ESP_HF_CLIENT_CIND_SIGNAL_STRENGTH_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "-- signal strength: %d",
+            ESP_LOGI(BT_HFP_TAG, "-- signal strength: %d",
                     param->signal_strength.value);
             break;
         }
 
         case ESP_HF_CLIENT_CIND_BATTERY_LEVEL_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--battery level %d",
+            ESP_LOGI(BT_HFP_TAG, "--battery level %d",
                     param->battery_level.value);
             break;
         }
 
         case ESP_HF_CLIENT_COPS_CURRENT_OPERATOR_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--operator name: %s",
+            ESP_LOGI(BT_HFP_TAG, "--operator name: %s",
                     param->cops.name);
             break;
         }
 
         case ESP_HF_CLIENT_CIND_CALL_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--Call indicator %s",
+            ESP_LOGI(BT_HFP_TAG, "--Call indicator %s",
                     c_call_str[param->call.status]);
             break;
         }
 
         case ESP_HF_CLIENT_CIND_CALL_SETUP_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--Call setup indicator %s",
+            ESP_LOGI(BT_HFP_TAG, "--Call setup indicator %s",
                     c_call_setup_str[param->call_setup.status]);
             break;
         }
 
         case ESP_HF_CLIENT_CIND_CALL_HELD_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--Call held indicator %s",
+            ESP_LOGI(BT_HFP_TAG, "--Call held indicator %s",
                     c_call_held_str[param->call_held.status]);
             break;
         }
 
         case ESP_HF_CLIENT_BTRH_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--response and hold %s",
+            ESP_LOGI(BT_HFP_TAG, "--response and hold %s",
                     c_resp_and_hold_str[param->btrh.status]);
             break;
         }
 
         case ESP_HF_CLIENT_CLIP_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--clip number %s",
+            ESP_LOGI(BT_HFP_TAG, "--clip number %s",
                     (param->clip.number == NULL) ? "NULL" : (param->clip.number));
             break;
         }
 
         case ESP_HF_CLIENT_CCWA_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--call_waiting %s",
+            ESP_LOGI(BT_HFP_TAG, "--call_waiting %s",
                     (param->ccwa.number == NULL) ? "NULL" : (param->ccwa.number));
             break;
         }
 
         case ESP_HF_CLIENT_CLCC_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--Current call: idx %d, dir %s, state %s, mpty %s, number %s",
+            ESP_LOGI(BT_HFP_TAG, "--Current call: idx %d, dir %s, state %s, mpty %s, number %s",
                     param->clcc.idx,
                     c_call_dir_str[param->clcc.dir],
                     c_call_state_str[param->clcc.status],
@@ -361,7 +314,7 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
 
         case ESP_HF_CLIENT_VOLUME_CONTROL_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--volume_target: %s, volume %d",
+            ESP_LOGI(BT_HFP_TAG, "--volume_target: %s, volume %d",
                     c_volume_control_target_str[param->volume_control.type],
                     param->volume_control.volume);
             break;
@@ -369,14 +322,14 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
 
         case ESP_HF_CLIENT_AT_RESPONSE_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--AT response event, code %d, cme %d",
+            ESP_LOGI(BT_HFP_TAG, "--AT response event, code %d, cme %d",
                     param->at_response.code, param->at_response.cme);
             break;
         }
 
         case ESP_HF_CLIENT_CNUM_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--subscriber type %s, number %s",
+            ESP_LOGI(BT_HFP_TAG, "--subscriber type %s, number %s",
                     c_subscriber_service_type_str[param->cnum.type],
                     (param->cnum.number == NULL) ? "NULL" : param->cnum.number);
             break;
@@ -384,35 +337,20 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
 
         case ESP_HF_CLIENT_BSIR_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--inband ring state %s",
+            ESP_LOGI(BT_HFP_TAG, "--inband ring state %s",
                     c_inband_ring_state_str[param->bsir.state]);
             break;
         }
 
         case ESP_HF_CLIENT_BINP_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--last voice tag number: %s",
+            ESP_LOGI(BT_HFP_TAG, "--last voice tag number: %s",
                     (param->binp.number == NULL) ? "NULL" : param->binp.number);
             break;
         }
-        case ESP_HF_CLIENT_PKT_STAT_NUMS_GET_EVT:
-        {
-            ESP_LOGE(BT_HF_TAG, "ESP_HF_CLIENT_PKT_STAT_NUMS_GET_EVT: %d", event);
-            break;
-        }
-        case ESP_HF_CLIENT_PROF_STATE_EVT:
-        {
-            if (ESP_HF_INIT_SUCCESS == param->prof_stat.state) {
-                ESP_LOGI(BT_HF_TAG, "HF PROF STATE: Init Complete");
-            } else if (ESP_HF_DEINIT_SUCCESS == param->prof_stat.state) {
-                ESP_LOGI(BT_HF_TAG, "HF PROF STATE: Deinit Complete");
-            } else {
-                ESP_LOGE(BT_HF_TAG, "HF PROF STATE error: %d", param->prof_stat.state);
-            }
-            break;
-        }
+        // todo: add ESP_HF_CLIENT_RING_IND_EVT (20)
         default:
-            ESP_LOGE(BT_HF_TAG, "HF_CLIENT EVT: %d", event);
+            ESP_LOGE(BT_HFP_TAG, "HF_CLIENT EVT: %d", event);
             break;
     }
 }
