@@ -48,3 +48,7 @@ More than welcome.
 * move codec from i2s to hfp
 * pull codec init out of funtions. init every 7.5 us is too expensive
 * fix i2s write semaphore(s)
+* start / stop hfp as a (none blocking) task
+* move to component
+* 
+
