@@ -53,5 +53,5 @@ More than welcome.
 * fix water levels for all ringbuffers
 * fix a2dp ringbuffer size when bit range changes
 * add noise suppression?
-* 
+* delete and replace bt_hfp.c
 
