@@ -51,6 +51,7 @@ More than welcome.
 * start / stop hfp as a (none blocking) task
 * move to component
 * fix water levels for all ringbuffers
+* fix a2dp bitrange changes
 * fix a2dp ringbuffer size when bit range changes
 * add noise suppression?
 * delete and replace bt_hfp.c
