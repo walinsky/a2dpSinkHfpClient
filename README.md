@@ -54,4 +54,6 @@ More than welcome.
 * fix a2dp ringbuffer size when bit range changes
 * add noise suppression?
 * delete and replace bt_hfp.c
+* add mic data to bt_hfp.c
+* 
 
