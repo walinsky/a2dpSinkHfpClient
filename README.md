@@ -26,6 +26,33 @@ bt_i2s_set_rx_I2S_pins(GPIO_NUM_16, GPIO_NUM_27, GPIO_NUM_NC, GPIO_NUM_14);
 
 Assuming you're using ESP-IDF5.1 you should be able to build and flash straight away. `sdkconfig.defaults` enables bluedroid, hfp, adp and other necessities.
 
+# A2DP Sink + HFP Component
+
+This component automatically configures your project with the required settings.
+
+## What Gets Configured Automatically
+
+On first build, the following files are copied from this component to your project root:
+
+- `sdkconfig.defaults` - Bluetooth and system configuration defaults
+- `partitions.csv` - Flash partition table for 4MB ESP32
+
+## User Notes
+
+- **Don't manually edit** the copied files if you want to preserve component compatibility
+- To customize: edit files in `components/a2dpSinkHfpClient/` instead
+- Run `idf.py fullclean` if you need to regenerate from component defaults
+
+## First Build
+
+Simply run:
+
+```idf.py build```
+
+
+The component will automatically set up all required configuration.
+
+
 ## Usage
 
 After the program is started, smart phones can discover and connect to a device named "ESP_SPEAKER".

@@ -15,9 +15,9 @@
 #include "bt_app_hf.h"
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
-#include "esp_gap_bt_api.h"
+// #include "esp_gap_bt_api.h"
 #include "esp_hf_client_api.h"
-// #include "esp_pbac_api.h"
+#include "esp_pbac_api.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -28,9 +28,9 @@
 #include "sdkconfig.h"
 
 #include "bt_i2s.h"
-
-
-
+#include "codec.h"
+#include "bt_app_pbac.h"
+#include "ringtone.h"
 
 const char *c_hf_evt_str[] = {
     "CONNECTION_STATE_EVT",              /*!< connection state changed event */
@@ -179,39 +179,81 @@ extern esp_bd_addr_t peer_addr;
 // If you want to connect a specific device, add it's address here
 // esp_bd_addr_t peer_addr = {0xac, 0x67, 0xb2, 0x53, 0x77, 0xbe};
 
-extern i2s_chan_handle_t tx_chan;
-extern i2s_chan_handle_t rx_chan;
 
 static esp_hf_sync_conn_hdl_t s_sync_conn_hdl;
 static bool s_msbc_air_mode = false;
-// QueueHandle_t s_audio_buff_queue = NULL;
+QueueHandle_t s_audio_buff_queue = NULL;
 // static int s_audio_buff_cnt = 0;
+static int s_audio_callback_cnt = 0;
+
+extern i2s_chan_handle_t tx_chan;
+extern i2s_chan_handle_t rx_chan;
+static bool s_hfp_audio_connected = false;
+static bool s_inband_ring_enabled = false;
+
+// When incoming call received with number
+void on_incoming_call(const char *caller_number)
+{
+    contact_t *contact = bt_app_pbac_find_by_number(caller_number);
+    
+    if (contact) {
+        printf("Incoming call from: %s\n", contact->full_name);
+        // Show contact name on display
+        free(contact);
+    } else {
+        printf("Incoming call from: %s (unknown)\n", caller_number);
+    }
+}
 
 static void bt_app_hf_client_audio_data_cb(esp_hf_sync_conn_hdl_t sync_conn_hdl, esp_hf_audio_buff_t *audio_buf, bool is_bad_frame)
 {
-    if (is_bad_frame) {
+    if (!s_hfp_audio_connected) {
         esp_hf_client_audio_buff_free(audio_buf);
         return;
     }
-    // decode our incoming data and send it to i2s
-    esp_audio_dec_out_frame_t out_frame = {0};
-    sbc_decoder(audio_buf->data, audio_buf->data_len, &out_frame);
-    bt_i2s_hfp_write_tx_ringbuf(out_frame.buffer, out_frame.len);
-
-    // fetch our msbc encoded mic data and send it to the ag
-    esp_hf_audio_buff_t *audio_data_to_send = esp_hf_client_audio_buff_alloc(sizeof(*audio_data_to_send));
-    bt_i2s_hfp_read_rx_ringbuf(audio_data_to_send);
-    if (audio_data_to_send->data_len == 0) {
-        esp_hf_client_audio_buff_free(audio_data_to_send);
-        return;
+    
+    if (!is_bad_frame) {
+        /* decode our incoming data and send it to i2s tx ringbuffer */
+        uint8_t *decoded_buffer = malloc(MSBC_FRAME_SAMPLES * 2);
+        size_t decoded_len;
+        if (msbc_dec_data(audio_buf->data, audio_buf->data_len, 
+                            decoded_buffer, &decoded_len) == 0) {
+            bt_i2s_hfp_write_tx_ringbuf(decoded_buffer, decoded_len);
+        }
+        free(decoded_buffer);
     }
-    /* send audio data back to AG */
-    // if (esp_hf_client_audio_data_send(s_sync_conn_hdl, audio_data_to_send) != ESP_OK) {
-    //     esp_hf_client_audio_buff_free(audio_data_to_send);
-    //     ESP_LOGW(BT_HF_TAG, "%s fail to send audio data", __func__);
-    // }
+    esp_hf_client_audio_buff_free(audio_buf);
+    
+    /* fetch our msbc encoded mic data and send it to the ag */
+    uint8_t *mic_data = malloc(ESP_HF_MSBC_ENCODED_FRAME_SIZE);
+    size_t mic_data_len = bt_i2s_hfp_read_rx_ringbuf(mic_data);
+    
+    esp_hf_audio_buff_t *audio_data_to_send = esp_hf_client_audio_buff_alloc((uint16_t) ESP_HF_MSBC_ENCODED_FRAME_SIZE);
+    
+    // Only encode if we actually have mic data AND connection is still active
+    if (mic_data_len > 0 && s_hfp_audio_connected) {
+        memcpy(audio_data_to_send->data, mic_data, ESP_HF_MSBC_ENCODED_FRAME_SIZE);
+    } else {
+        // Send silence if no mic data or connection closing
+        memset(audio_data_to_send->data, 0, ESP_HF_MSBC_ENCODED_FRAME_SIZE);
+    }
+    
+    audio_data_to_send->data_len = ESP_HF_MSBC_ENCODED_FRAME_SIZE;
+    free(mic_data);
+    
+    if (esp_hf_client_audio_data_send(s_sync_conn_hdl, audio_data_to_send) != ESP_OK) {
+        esp_hf_client_audio_buff_free(audio_data_to_send);
+        // Don't log warning during shutdown
+        if (s_hfp_audio_connected) {
+            ESP_LOGW(BT_HF_TAG, "%s failed to send audio data", __func__);
+        }
+    }
+    
+    if (s_audio_callback_cnt % 1000 == 0) {
+        esp_hf_client_pkt_stat_nums_get(sync_conn_hdl);
+    }
+    s_audio_callback_cnt++;
 }
-
 
 /* callback for HF_CLIENT */
 void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param)
@@ -231,7 +273,7 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
                     param->conn_stat.chld_feat);
             memcpy(peer_addr,param->conn_stat.remote_bda,ESP_BD_ADDR_LEN);
             if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED) {
-                // esp_pbac_connect(peer_addr);
+                esp_pbac_connect(peer_addr);
             }
             break;
         }
@@ -252,13 +294,23 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
 
             if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
                 param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
+                // PAUSE PHONEBOOK DURING CALL
+                bt_app_pbac_pause();
+                // Stop ringtone when phone audio connects
+                ringtone_stop();
                 s_sync_conn_hdl = param->audio_stat.sync_conn_handle;
+                s_hfp_audio_connected = true;
                 bt_i2s_hfp_start();
                 esp_hf_client_register_audio_data_callback(bt_app_hf_client_audio_data_cb);
             } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
+                ESP_LOGI(BT_HF_TAG, "%s ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED", __func__);
+                // RESUME PHONEBOOK AFTER CALL
+                bt_app_pbac_resume();
                 s_sync_conn_hdl = 0;
                 s_msbc_air_mode = false;
-                bt_i2s_hfp_stop();
+                s_hfp_audio_connected = false;
+                static TaskHandle_t s_hfp_kill_audio_task_handle;
+                xTaskCreate(&kill_hfp_audio_task, "Kill HPF AUDIO", 4096, NULL, 5, &s_hfp_kill_audio_task_handle);
             }
     #endif /* #if CONFIG_BT_HFP_AUDIO_DATA_PATH_HCI && CONFIG_BT_HFP_USE_EXTERNAL_CODEC */
             break;
@@ -317,6 +369,10 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
         {
             ESP_LOGI(BT_HF_TAG, "--Call setup indicator %s",
                     c_call_setup_str[param->call_setup.status]);
+            // Stop ringtone when call setup ends (rejected/answered/missed)
+            if (param->call_setup.status == ESP_HF_CALL_SETUP_STATUS_IDLE) {
+                ringtone_stop();
+            }
             break;
         }
 
@@ -338,6 +394,9 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
         {
             ESP_LOGI(BT_HF_TAG, "--clip number %s",
                     (param->clip.number == NULL) ? "NULL" : (param->clip.number));
+            if (param->clip.number != NULL) {
+                on_incoming_call(param->clip.number);
+            }
             break;
         }
 
@@ -384,8 +443,9 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
 
         case ESP_HF_CLIENT_BSIR_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--inband ring state %s",
-                    c_inband_ring_state_str[param->bsir.state]);
+            ESP_LOGI(BT_HF_TAG, "--BSIR (setup indicator ring) state: %s",
+                    param->bsir.state ? "Provided" : "NOT Provided");
+            s_inband_ring_enabled = param->bsir.state;
             break;
         }
 
@@ -395,9 +455,26 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
                     (param->binp.number == NULL) ? "NULL" : param->binp.number);
             break;
         }
+
+        case ESP_HF_CLIENT_RING_IND_EVT:
+        {
+            ESP_LOGI(BT_HF_TAG, "--ring indication event");
+            
+            // Only play local ringtone if phone doesn't provide inband
+            if (!s_inband_ring_enabled) {
+                ESP_LOGI(BT_HF_TAG, "No inband ringtone, playing local beep");
+                ringtone_play_beep();
+            } else {
+                ESP_LOGD(BT_HF_TAG, "Inband ringtone provided by phone, skipping local beep");
+            }
+            break;
+        }
+
         case ESP_HF_CLIENT_PKT_STAT_NUMS_GET_EVT:
         {
-            ESP_LOGE(BT_HF_TAG, "ESP_HF_CLIENT_PKT_STAT_NUMS_GET_EVT: %d", event);
+            ESP_LOGI(BT_HF_TAG, "total packets: %d, received ok: %d, received err: %d, received none: %d, received lost: %d, sent: %d, sent lost: %d", 
+                param->pkt_nums.rx_total, param->pkt_nums.rx_correct, param->pkt_nums.rx_err, param->pkt_nums.rx_none, param->pkt_nums.rx_lost,
+                param->pkt_nums.tx_total, param->pkt_nums.tx_discarded);
             break;
         }
         case ESP_HF_CLIENT_PROF_STATE_EVT:
@@ -416,3 +493,12 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             break;
     }
 }
+
+static void kill_hfp_audio_task(void *pvParameters) {
+    ESP_LOGI(BT_HF_TAG, "%s stopping I2S hfp", __func__);
+    bt_i2s_hfp_stop();
+    msbc_enc_reset_frame_count();
+    ESP_LOGI(BT_HF_TAG, "%s, deleting myself",__func__); 
+    vTaskDelete(NULL);
+}
+

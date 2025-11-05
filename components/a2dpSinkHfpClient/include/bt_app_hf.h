@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include "esp_hf_client_api.h"
 
+
 #define BT_HF_TAG               "BT_HF"
 
 /**
@@ -17,5 +18,5 @@
  */
 void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param);
 
-
+static void kill_hfp_audio_task(void *pvParameters);
 #endif /* __BT_APP_HF_H__*/
