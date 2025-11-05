@@ -66,15 +66,23 @@ static SemaphoreHandle_t s_i2s_mode_idle_sem = NULL;
 /* A2DP SBC decoding pipeline */
 static RingbufHandle_t s_a2dp_sbc_encoded_ringbuf = NULL;
 static TaskHandle_t s_bt_i2s_a2dp_decode_task_hdl = NULL;
-static bool s_bt_i2s_a2dp_decode_running = false;
+static SemaphoreHandle_t s_a2dp_sbc_packet_ready_sem = NULL;
 
 /* Forward declarations for A2DP decode pipeline */
-static void bt_i2s_a2dp_decode_task_init(void);
-static void bt_i2s_a2dp_decode_task_deinit(void);
-static uint16_t sbc_get_frame_size(const uint8_t *frame_header);
+static void bt_i2s_a2dp_decode_task_handler(void *arg);
 /* A2DP SBC packet configuration (set once after audio config) */
 static uint16_t s_a2dp_sbc_packet_size = 0;
 static uint8_t s_a2dp_sbc_frames_per_packet = 0;
+static SemaphoreHandle_t s_a2dp_params_ready_sem = NULL;
+
+// Global state variables
+static volatile bool s_bt_i2s_a2dp_decode_task_running = false;
+static volatile bool s_bt_i2s_a2dp_tx_task_running = false;
+
+// Cleanup semaphores: after a task exits it will give this semaphore
+// so their ringbuffers can be safely deleted
+static SemaphoreHandle_t s_a2dp_decode_task_exit_sem = NULL;
+static SemaphoreHandle_t s_a2dp_tx_task_exit_sem = NULL;
 
 #define I2S_MODE_SWITCH_TIMEOUT_MS 2000
 
@@ -149,7 +157,13 @@ void bt_i2s_init() {
         ESP_LOGE(BT_I2S_TAG, "%s, s_i2s_hfp_rx_ringbuf_delete Semaphore create failed", __func__);
         return;
     }
-
+    // Create cleanup semaphores
+    s_a2dp_decode_task_exit_sem = xSemaphoreCreateBinary();
+    s_a2dp_tx_task_exit_sem = xSemaphoreCreateBinary();
+    
+    // Initialize to "not given" (binary sems are 1-count initially)
+    xSemaphoreTake(s_a2dp_decode_task_exit_sem, 0);
+    xSemaphoreTake(s_a2dp_tx_task_exit_sem, 0);
     s_i2s_tx_mode = I2S_TX_MODE_NONE;
 
     bt_i2s_init_tx_chan();
@@ -368,6 +382,9 @@ A2DP
 */
 
 
+
+
+
 /* 
     fetch audio data from the a2dp ringbuffer and write to i2s
  */
@@ -382,7 +399,7 @@ void bt_i2s_a2dp_tx_task_handler(void *arg)
      */
     const size_t item_size_upto = 240 * 6;
     size_t bytes_written = 0;
-    for (;;) {
+    while (s_bt_i2s_a2dp_tx_task_running) {
         if (pdTRUE == xSemaphoreTake(s_i2s_tx_semaphore, portMAX_DELAY)) {
             for (;;) {
                 item_size = 0;
@@ -401,71 +418,9 @@ void bt_i2s_a2dp_tx_task_handler(void *arg)
             }
         }
     }
-}
-
-/* 
-    this sets up our a2dp ringbuffer, and creates the a2dp tx task handler
- */
-void bt_i2s_a2dp_task_init(void)
-{
-    /* Start decode task (new pipeline) */
-    bt_i2s_a2dp_decode_task_init();
-    /* start tx task handler */
-    ESP_LOGI(BT_I2S_TAG, "ringbuffer data empty! mode changed: RINGBUFFER_MODE_PREFETCHING");
-    s_i2s_a2dp_tx_ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
-    if ((s_i2s_a2dp_tx_ringbuf = xRingbufferCreate(RINGBUF_HIGHEST_WATER_LEVEL, RINGBUF_TYPE_BYTEBUF)) == NULL) {
-        ESP_LOGE(BT_I2S_TAG, "%s, ringbuffer create failed", __func__);
-        return;
-    }
-    xTaskCreate(bt_i2s_a2dp_tx_task_handler, "BtI2Sa2dpTask", 4096, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_a2dp_tx_task_handle);
-}
-
-/* 
-    delete a2dp tx task handler and delete ringbuffer
- */
-void bt_i2s_a2dp_task_deinit(void)
-{
-    /* Stop decode task (new pipeline) */
-    bt_i2s_a2dp_decode_task_deinit();
-
-    if (s_bt_i2s_a2dp_tx_task_handle) {
-        vTaskDelete(s_bt_i2s_a2dp_tx_task_handle);
-        s_bt_i2s_a2dp_tx_task_handle = NULL;
-    }
-    if (s_i2s_a2dp_tx_ringbuf) {
-        vRingbufferDelete(s_i2s_a2dp_tx_ringbuf);
-        s_i2s_a2dp_tx_ringbuf = NULL;
-    }
-}
-
-/* 
-    start our a2dp tx task.
-    this should be called after bt_i2s_task_init
- */
-void bt_i2s_a2dp_task_start_up(void)
-{
-    ESP_LOGI(BT_I2S_TAG, "A2DP task startup");
-    
-    // Configure I2S for A2DP
-    bt_i2s_channels_config_adp();
-    bt_i2s_tx_channel_enable();
-    
-    // Set mode FIRST
-    s_i2s_tx_mode = I2S_TX_MODE_A2DP;
-    
-    // Then wake up the task
-    xSemaphoreGive(s_i2s_tx_semaphore);
-}
-
-
-/* 
-    stop our a2dp tx task.
-    this should be called before bt_i2s_task_deinit
- */
-void bt_i2s_a2dp_task_shut_down(void) // change my name!!!
-{
-    s_i2s_tx_mode = I2S_TX_MODE_NONE;
-    bt_i2s_tx_channel_disable();
+    xSemaphoreGive(s_a2dp_tx_task_exit_sem);
+    ESP_LOGI(BT_I2S_TAG, "%s - exiting gracefully", __func__);
+    vTaskDelete(NULL);
 }
 
 /**
@@ -476,6 +431,10 @@ void bt_i2s_a2dp_set_packet_params(uint16_t packet_size, uint8_t frames_per_pack
     s_a2dp_sbc_packet_size = packet_size;
     s_a2dp_sbc_frames_per_packet = frames_per_packet;
     ESP_LOGI(BT_I2S_TAG, "A2DP packet params set: size=%d, frames=%d", packet_size, frames_per_packet);
+    /* Signal that params are ready - decoder can now allocate buffer */
+    if (s_a2dp_params_ready_sem != NULL) {
+        xSemaphoreGive(s_a2dp_params_ready_sem);
+    }
 }
 
 /**
@@ -485,10 +444,17 @@ void bt_i2s_a2dp_write_sbc_encoded_ringbuf(const uint8_t *data, uint32_t len)
 {
     if (data == NULL || len == 0 || s_a2dp_sbc_encoded_ringbuf == NULL) {
         return;
+    } else {
+        // we know this for sure (952 when a2dp sink reports 952 to us)
+        // but if you want to know raw sbc size:
+        // ESP_LOGI(BT_I2S_TAG, "%s - a2dp gave us len %d raw sbc data", __func__, len);
     }
 
     /* FAST: Just copy raw SBC frame - BTC callback exits immediately */
     xRingbufferSend(s_a2dp_sbc_encoded_ringbuf, (void *)data, len, 0);
+    if (s_a2dp_sbc_packet_size > 0 && len == s_a2dp_sbc_packet_size) {
+        xSemaphoreGive(s_a2dp_sbc_packet_ready_sem);
+    }
 }
 
 /**
@@ -496,12 +462,21 @@ void bt_i2s_a2dp_write_sbc_encoded_ringbuf(const uint8_t *data, uint32_t len)
  */
 static void bt_i2s_a2dp_decode_task_handler(void *arg)
 {
-    /* Wait for packet params to be set */
-    while (s_a2dp_sbc_packet_size == 0) {
-        vTaskDelay(pdMS_TO_TICKS(10));
+    ESP_LOGI(BT_I2S_TAG, "A2DP SBC decode task started - waiting for params...");
+
+    /* Wait for packet params to be set by first audio callback */
+    if (s_a2dp_params_ready_sem == NULL) {
+        ESP_LOGE(BT_I2S_TAG, "Params semaphore not created!");
+        vTaskDelete(NULL);
+        return;
     }
 
-    /* Allocate buffer dynamically based on packet size */
+    if (xSemaphoreTake(s_a2dp_params_ready_sem, portMAX_DELAY) != pdTRUE) {
+        ESP_LOGE(BT_I2S_TAG, "Failed to wait for params");
+        vTaskDelete(NULL);
+        return;
+    }
+
     uint8_t *sbc_buffer = (uint8_t *)malloc(s_a2dp_sbc_packet_size);
     if (sbc_buffer == NULL) {
         ESP_LOGE(BT_I2S_TAG, "Failed to allocate SBC buffer");
@@ -514,41 +489,56 @@ static void bt_i2s_a2dp_decode_task_handler(void *arg)
     size_t sbc_data_len = 0;
     bool decoder_opened = false;
 
-    ESP_LOGI(BT_I2S_TAG, "A2DP SBC decode task started (packet_size=%d)", s_a2dp_sbc_packet_size);
+    ESP_LOGI(BT_I2S_TAG, "A2DP SBC decode task ready (packet_size=%d)", s_a2dp_sbc_packet_size);
+    
+    int packet_count = 0;
 
-    while (s_bt_i2s_a2dp_decode_running) {
-        /* Receive fragment */
-        sbc_data = xRingbufferReceive(s_a2dp_sbc_encoded_ringbuf, &sbc_data_len, portMAX_DELAY);
-
-        if (sbc_data == NULL || sbc_data_len == 0) {
+    while (s_bt_i2s_a2dp_decode_task_running) {
+        if (xSemaphoreTake(s_a2dp_sbc_packet_ready_sem, portMAX_DELAY) != pdTRUE) {
             continue;
         }
 
-        /* Accumulate into packet-sized buffer */
-        if (sbc_buffer_fill + sbc_data_len <= s_a2dp_sbc_packet_size) {
+        /* Log when we wake up */
+        // ESP_LOGW(BT_I2S_TAG, "Semaphore taken, packet %d - accumulating...", ++packet_count);
+
+        sbc_buffer_fill = 0;
+        
+        while (sbc_buffer_fill < s_a2dp_sbc_packet_size) {
+            /* Try to get remaining bytes - xRingbufferReceiveUpTo handles wrapping */
+            sbc_data = xRingbufferReceiveUpTo(s_a2dp_sbc_encoded_ringbuf, &sbc_data_len,
+                                            pdMS_TO_TICKS(10),  /* SHORT timeout for fragments */
+                                            s_a2dp_sbc_packet_size - sbc_buffer_fill);
+
+            if (sbc_data == NULL || sbc_data_len == 0) {
+                if (sbc_buffer_fill > 0) {
+                    /* We got partial data but timed out - keep waiting */
+                    continue;
+                }
+                break;  /* No data at all */
+            }
+
+            /* Copy what we got */
             memcpy(&sbc_buffer[sbc_buffer_fill], sbc_data, sbc_data_len);
             sbc_buffer_fill += sbc_data_len;
+            
+            // ESP_LOGW(BT_I2S_TAG, "  Received fragment: %d bytes (fill: %d/%d)", 
+            //         sbc_data_len, sbc_buffer_fill, s_a2dp_sbc_packet_size);
+
+            vRingbufferReturnItem(s_a2dp_sbc_encoded_ringbuf, sbc_data);
         }
 
-        vRingbufferReturnItem(s_a2dp_sbc_encoded_ringbuf, sbc_data);
+        // ESP_LOGW(BT_I2S_TAG, "Packet %d complete - buffer full (%d bytes)", packet_count, sbc_buffer_fill);
 
-        /* Wait for complete packet */
-        if (sbc_buffer_fill < s_a2dp_sbc_packet_size) {
-            continue;
-        }
-
-        /* Open decoder */
         if (!decoder_opened) {
             if (a2dp_sbc_dec_open(A2DP_SAMPLE_RATE, A2DP_CH_COUNT) == 0) {
                 decoder_opened = true;
                 ESP_LOGI(BT_I2S_TAG, "✓ A2DP SBC decoder opened");
             } else {
-                sbc_buffer_fill = 0;
                 continue;
             }
         }
 
-        /* Feed packet to decoder - let it parse frames */
+        /* Decode packet */
         size_t offset = 0;
         while (offset < s_a2dp_sbc_packet_size) {
             uint8_t decoded_pcm[2048];
@@ -566,96 +556,20 @@ static void bt_i2s_a2dp_decode_task_handler(void *arg)
             if (consumed == 0) break;
             offset += consumed;
         }
-
-        sbc_buffer_fill = 0;
     }
 
     if (decoder_opened) {
         a2dp_sbc_dec_close();
-        ESP_LOGI(BT_I2S_TAG, "A2DP SBC decoder closed");
     }
 
     free(sbc_buffer);
+    xSemaphoreGive(s_a2dp_decode_task_exit_sem);
+    ESP_LOGI(BT_I2S_TAG, "%s - exiting gracefully", __func__);
     vTaskDelete(NULL);
 }
 
-/**
- * @brief Calculate SBC frame size from header bytes
- * Returns frame size in bytes, or 0 if invalid
- */
-static uint16_t sbc_get_frame_size(const uint8_t *frame_header)
-{
-    if (frame_header[0] != 0x9C) {
-        return 0;
-    }
-
-    uint8_t byte1 = frame_header[1];
-    uint8_t byte2 = frame_header[2];
-    uint8_t byte3 = frame_header[3];
-
-    /* Blocks: (byte1 >> 4) & 0xC = bits 6-7 => 0=4, 1=8, 2=12, 3=16 blocks */
-    uint8_t nblocks = 4 + 4 * (((byte1 >> 4) & 0xC) >> 2);
-
-    /* Subbands: byte1 bit 4 => 0=4, 1=8 */
-    uint8_t nsubbands = 4 + 4 * ((byte1 >> 4) & 0x1);
-
-    /* Channels: (byte1 >> 2) & 0x3 => 0=mono, 1-3=stereo */
-    uint8_t nchannels = (((byte1 >> 2) & 0x3) == 0) ? 1 : 2;
-
-    /* Bitpool: byte3 & 0x3F */
-    uint8_t bitpool = byte3 & 0x3F;
-
-    /* SBC frame size in bytes:
-       1 (sync) + 3 (header) + (4*nsubbands*nchannels + 7)/8 (scale factors)
-       + (nblocks*bitpool*nchannels + 7)/8 (audio data) */
-    
-    uint16_t frame_size = 4 + (4 * nsubbands * nchannels + 7) / 8 
-                          + (nblocks * bitpool * nchannels + 7) / 8;
-
-    return frame_size;
-}
 
 
-/**
- * @brief Start A2DP SBC decode task
- */
-static void bt_i2s_a2dp_decode_task_init(void)
-{
-    if (s_bt_i2s_a2dp_decode_task_hdl) {
-        return;
-    }
-
-    s_a2dp_sbc_encoded_ringbuf = xRingbufferCreate(8192, RINGBUF_TYPE_BYTEBUF);
-    s_bt_i2s_a2dp_decode_running = true;
-
-    xTaskCreatePinnedToCore(bt_i2s_a2dp_decode_task_handler,
-                            "BtI2SA2DPDec",
-                            4096,
-                            NULL,
-                            configMAX_PRIORITIES - 5,
-                            &s_bt_i2s_a2dp_decode_task_hdl,
-                            1);
-}
-
-/**
- * @brief Stop A2DP SBC decode task
- */
-static void bt_i2s_a2dp_decode_task_deinit(void)
-{
-    if (!s_bt_i2s_a2dp_decode_task_hdl) {
-        return;
-    }
-
-    s_bt_i2s_a2dp_decode_running = false;
-    vTaskDelay(pdMS_TO_TICKS(50)); /* Let task exit */
-
-    if (s_a2dp_sbc_encoded_ringbuf) {
-        vRingbufferDelete(s_a2dp_sbc_encoded_ringbuf);
-        s_a2dp_sbc_encoded_ringbuf = NULL;
-    }
-
-    s_bt_i2s_a2dp_decode_task_hdl = NULL;
-}
 
 /* 
     recieve the decoded a2dp sink PCM data
@@ -693,6 +607,11 @@ void bt_i2s_a2dp_write_tx_ringbuf(const uint8_t *data, uint32_t size)
 
     // return done ? size : 0;
 }
+
+/* 
+HFP 
+*/
+
 
 /* 
     this sets up our hfp tx and rx ringbuffers, and creates the hfp tx and rx tasks
@@ -1107,7 +1026,7 @@ void bt_i2s_hfp_stop(void)
 
 void bt_i2s_a2dp_start(void) {
     ESP_LOGI(BT_I2S_TAG, "Starting A2DP mode");
-    
+
     // Take mutex to ensure exclusive access
     if (xSemaphoreTake(s_i2s_mode_mutex, pdMS_TO_TICKS(I2S_MODE_SWITCH_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(BT_I2S_TAG, "Failed to acquire mode mutex for A2DP start");
@@ -1120,11 +1039,44 @@ void bt_i2s_a2dp_start(void) {
         xSemaphoreGive(s_i2s_mode_mutex);
         return;
     }
-    ESP_LOGI(BT_I2S_TAG, "✓ A2DP SBC decoder opened");
 
-    // Initialize A2DP components
-    bt_i2s_a2dp_task_init();
-    bt_i2s_a2dp_task_start_up();
+    /* Create params and packets ready semaphores */
+    if (s_a2dp_params_ready_sem == NULL) {
+        s_a2dp_params_ready_sem = xSemaphoreCreateBinary();
+    }
+    if (s_a2dp_sbc_packet_ready_sem == NULL) {
+        s_a2dp_sbc_packet_ready_sem = xSemaphoreCreateBinary();
+    }
+
+    /* CRITICAL: Reset exit semaphores to "not given" state */
+    xSemaphoreTake(s_a2dp_decode_task_exit_sem, 0);
+    xSemaphoreTake(s_a2dp_tx_task_exit_sem, 0);
+
+    /* Start decode task handler */
+    s_a2dp_sbc_encoded_ringbuf = xRingbufferCreate(8192, RINGBUF_TYPE_BYTEBUF);
+    s_bt_i2s_a2dp_decode_task_running = true;
+    xTaskCreate(bt_i2s_a2dp_decode_task_handler, "BtI2SA2DPDec", 4096, NULL, configMAX_PRIORITIES - 5, &s_bt_i2s_a2dp_decode_task_hdl);
+    ESP_LOGI(BT_I2S_TAG, "✓ A2DP SBC decoder started");
+
+    /* start tx task handler */
+    s_i2s_a2dp_tx_ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
+    if ((s_i2s_a2dp_tx_ringbuf = xRingbufferCreate(RINGBUF_HIGHEST_WATER_LEVEL, RINGBUF_TYPE_BYTEBUF)) == NULL) {
+        ESP_LOGE(BT_I2S_TAG, "%s, ringbuffer create failed", __func__);
+        return;
+    }
+    s_bt_i2s_a2dp_tx_task_running = true;
+    xTaskCreate(bt_i2s_a2dp_tx_task_handler, "BtI2Sa2dpTask", 4096, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_a2dp_tx_task_handle);
+    ESP_LOGI(BT_I2S_TAG, "✓ A2DP tx handler started");
+
+    // Configure I2S for A2DP
+    bt_i2s_channels_config_adp();
+    bt_i2s_tx_channel_enable();
+    
+    // Set mode FIRST
+    s_i2s_tx_mode = I2S_TX_MODE_A2DP;
+    
+    // Then wake up the bt_i2s_a2dp_tx_task_handler task
+    // xSemaphoreGive(s_i2s_tx_semaphore);
     
     // Release mutex
     xSemaphoreGive(s_i2s_mode_mutex);
@@ -1140,13 +1092,64 @@ void bt_i2s_a2dp_stop(void) {
         return;
     }
     
-    // Stop A2DP components
-    bt_i2s_a2dp_task_shut_down();
-    bt_i2s_a2dp_task_deinit();
-    
-    // Close A2DP SBC decoder
-    a2dp_sbc_dec_close();
-    ESP_LOGI(BT_I2S_TAG, "A2DP SBC decoder closed");
+    // Signal both tasks to exit
+    s_bt_i2s_a2dp_decode_task_running = false;
+    s_bt_i2s_a2dp_tx_task_running = false;
+
+    // Wake both tasks from any blocking calls
+    // (in case they're blocked on semaphores)
+    if (s_a2dp_params_ready_sem) {
+        xSemaphoreGive(s_a2dp_params_ready_sem);  // Unblock decode task
+    }
+    if (s_a2dp_sbc_packet_ready_sem) {
+        xSemaphoreGive(s_a2dp_sbc_packet_ready_sem);  // Unblock tx task
+    }
+
+    // Wait for both tasks to exit
+    if (xSemaphoreTake(s_a2dp_decode_task_exit_sem, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(BT_I2S_TAG, "Failed to acquire a2dp decode task exit semaphore");
+        return;
+    }
+        if (xSemaphoreTake(s_a2dp_tx_task_exit_sem, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(BT_I2S_TAG, "Failed to acquire a2dp tx task exit semaphore");
+        return;
+    }
+
+    /* stop our decoding task, and delete its buffer */
+    if (s_bt_i2s_a2dp_decode_task_hdl) {
+        // vTaskDelete(s_bt_i2s_a2dp_decode_task_hdl);
+        s_bt_i2s_a2dp_decode_task_hdl = NULL;
+    }
+    if (s_a2dp_sbc_encoded_ringbuf) {
+        vRingbufferDelete(s_a2dp_sbc_encoded_ringbuf);
+        s_a2dp_sbc_encoded_ringbuf = NULL;
+    }
+    /* stop our tx task, and delete its buffer */
+    if (s_bt_i2s_a2dp_tx_task_handle) {
+        // vTaskDelete(s_bt_i2s_a2dp_tx_task_handle); // we should have a similar mechanism here for letting the task stop itself
+        s_bt_i2s_a2dp_tx_task_handle = NULL;
+    }
+    if (s_i2s_a2dp_tx_ringbuf) {
+        vRingbufferDelete(s_i2s_a2dp_tx_ringbuf);
+        s_i2s_a2dp_tx_ringbuf = NULL;
+    }
+    s_i2s_tx_mode = I2S_TX_MODE_NONE;
+    bt_i2s_tx_channel_disable();
+
+    /* Delete semaphores */
+    if (s_a2dp_params_ready_sem != NULL) {
+        vSemaphoreDelete(s_a2dp_params_ready_sem);
+        s_a2dp_params_ready_sem = NULL;
+    }
+
+    if (s_a2dp_sbc_packet_ready_sem != NULL) {
+        vSemaphoreDelete(s_a2dp_sbc_packet_ready_sem);
+        s_a2dp_sbc_packet_ready_sem = NULL;
+    }
+
+    /* Reset packet params for next A2DP session */
+    s_a2dp_sbc_packet_size = 0;
+    s_a2dp_sbc_frames_per_packet = 0;
 
     // Signal idle state
     xSemaphoreGive(s_i2s_mode_idle_sem);

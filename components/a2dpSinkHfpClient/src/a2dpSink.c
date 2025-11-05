@@ -17,6 +17,7 @@
 /* Local state tracking */
 static bool s_a2dp_connected = false;
 static bool s_audio_stream_active = false;
+static bool s_audio_data_params_set = false;
 
 static const char *s_a2d_conn_state_str[] = {
     "Disconnected", "Connecting", "Connected", "Disconnecting"
@@ -50,7 +51,7 @@ static void bt_app_a2dp_conn_state_handler(esp_a2d_cb_param_t *param)
 
     case ESP_A2D_CONNECTION_STATE_CONNECTED:
         s_a2dp_connected = true;
-        bt_i2s_a2dp_task_init();
+        // bt_i2s_a2dp_task_init();
         ESP_LOGI(A2DP_SINK_TAG, "✓ A2DP connected from: %02x:%02x:%02x:%02x:%02x:%02x",
                  bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
         break;
@@ -117,12 +118,13 @@ static void bt_app_a2dp_audio_state_handler(esp_a2d_cb_param_t *param)
 
     if (param->audio_stat.state == ESP_A2D_AUDIO_STATE_STARTED) {
         s_audio_stream_active = true;
-        bt_i2s_a2dp_task_start_up();
+        s_audio_data_params_set = false;
+        bt_i2s_a2dp_start();
         ESP_LOGI(A2DP_SINK_TAG, "✓ A2DP audio stream started");
         
     } else if (param->audio_stat.state == ESP_A2D_AUDIO_STATE_SUSPEND) {
         s_audio_stream_active = false;
-        bt_i2s_a2dp_task_shut_down();
+        bt_i2s_a2dp_stop();
         ESP_LOGI(A2DP_SINK_TAG, "A2DP audio stream stopped");
     }
 }
@@ -130,8 +132,6 @@ static void bt_app_a2dp_audio_state_handler(esp_a2d_cb_param_t *param)
 
 void bt_app_a2d_audio_data_cb(uint16_t conn_hdl, esp_a2d_audio_buff_t *audio_buf)
 {
-    static bool params_set = false;
-    
     if (audio_buf == NULL || !s_audio_stream_active || 
         audio_buf->data == NULL || audio_buf->data_len == 0) {
         if (audio_buf) esp_a2d_audio_buff_free(audio_buf);
@@ -139,9 +139,9 @@ void bt_app_a2d_audio_data_cb(uint16_t conn_hdl, esp_a2d_audio_buff_t *audio_buf
     }
 
     /* Set packet params from FIRST audio buffer (auto-detect) */
-    if (!params_set) {
+    if (!s_audio_data_params_set) {
         bt_i2s_a2dp_set_packet_params(audio_buf->data_len, audio_buf->number_frame);
-        params_set = true;
+        s_audio_data_params_set = true;
     }
 
     bt_i2s_a2dp_write_sbc_encoded_ringbuf(audio_buf->data, audio_buf->data_len);

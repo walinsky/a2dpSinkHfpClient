@@ -29,6 +29,7 @@ typedef enum {
 } i2s_tx_mode_t;
 
 void bt_i2s_init();
+
 void bt_i2s_set_tx_I2S_pins(int bckPin, int wsPin, int doPin, int diPin);
 void bt_i2s_set_rx_I2S_pins(int bckPin, int wsPin, int doPin, int diPin);
 
