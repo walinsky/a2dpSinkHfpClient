@@ -10,8 +10,6 @@
 #include <string.h>
 #include <inttypes.h>
 #include "esp_log.h"
-
-#include "bt_app_core.h"
 #include "bt_app_hf.h"
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
@@ -295,7 +293,7 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
                 param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
                 // PAUSE PHONEBOOK DURING CALL
-                bt_app_pbac_pause();
+                // bt_app_pbac_pause();
                 // Stop ringtone when phone audio connects
                 ringtone_stop();
                 s_sync_conn_hdl = param->audio_stat.sync_conn_handle;
@@ -305,7 +303,7 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
                 ESP_LOGI(BT_HF_TAG, "%s ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED", __func__);
                 // RESUME PHONEBOOK AFTER CALL
-                bt_app_pbac_resume();
+                // bt_app_pbac_resume();
                 s_sync_conn_hdl = 0;
                 s_msbc_air_mode = false;
                 s_hfp_audio_connected = false;

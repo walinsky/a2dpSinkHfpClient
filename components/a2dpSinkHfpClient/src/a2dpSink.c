@@ -9,7 +9,6 @@
 #include "freertos/task.h"
 #include "a2dpSink.h"
 #include "bt_i2s.h"
-#include "bt_app_core.h"
 #include "codec.h"
 
 #define A2DP_SINK_TAG "A2DP_SINK"

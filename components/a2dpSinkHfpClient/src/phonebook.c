@@ -23,24 +23,6 @@ static void make_phonebook_path(esp_bd_addr_t device_addr, char *path_out, size_
              device_addr[3], device_addr[4], device_addr[5]);
 }
 
-// Remove all non-digit characters except leading +
-static void strip_formatting(const char *input, char *output, size_t output_len)
-{
-    int out_idx = 0;
-    bool first_char = true;
-    
-    for (int i = 0; input[i] != '\0' && out_idx < output_len - 1; i++) {
-        if (isdigit((unsigned char)input[i])) {
-            output[out_idx++] = input[i];
-            first_char = false;
-        } else if (input[i] == '+' && first_char) {
-            output[out_idx++] = input[i];
-            first_char = false;
-        }
-    }
-    output[out_idx] = '\0';
-}
-
 // Normalize phone number to E.164 format (+CountryCodeNumber)
 // Optimized: Normalize phone number in-place without extra allocation
 static void normalize_phone_number(const char *input, char *output, size_t output_len, const char *country_code)

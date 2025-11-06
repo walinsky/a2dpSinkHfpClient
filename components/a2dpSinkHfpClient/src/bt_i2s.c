@@ -490,16 +490,11 @@ static void bt_i2s_a2dp_decode_task_handler(void *arg)
     bool decoder_opened = false;
 
     ESP_LOGI(BT_I2S_TAG, "A2DP SBC decode task ready (packet_size=%d)", s_a2dp_sbc_packet_size);
-    
-    int packet_count = 0;
 
     while (s_bt_i2s_a2dp_decode_task_running) {
         if (xSemaphoreTake(s_a2dp_sbc_packet_ready_sem, portMAX_DELAY) != pdTRUE) {
             continue;
         }
-
-        /* Log when we wake up */
-        // ESP_LOGW(BT_I2S_TAG, "Semaphore taken, packet %d - accumulating...", ++packet_count);
 
         sbc_buffer_fill = 0;
         
@@ -520,14 +515,8 @@ static void bt_i2s_a2dp_decode_task_handler(void *arg)
             /* Copy what we got */
             memcpy(&sbc_buffer[sbc_buffer_fill], sbc_data, sbc_data_len);
             sbc_buffer_fill += sbc_data_len;
-            
-            // ESP_LOGW(BT_I2S_TAG, "  Received fragment: %d bytes (fill: %d/%d)", 
-            //         sbc_data_len, sbc_buffer_fill, s_a2dp_sbc_packet_size);
-
             vRingbufferReturnItem(s_a2dp_sbc_encoded_ringbuf, sbc_data);
         }
-
-        // ESP_LOGW(BT_I2S_TAG, "Packet %d complete - buffer full (%d bytes)", packet_count, sbc_buffer_fill);
 
         if (!decoder_opened) {
             if (a2dp_sbc_dec_open(A2DP_SAMPLE_RATE, A2DP_CH_COUNT) == 0) {

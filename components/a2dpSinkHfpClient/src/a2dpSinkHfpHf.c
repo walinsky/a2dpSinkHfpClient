@@ -11,11 +11,9 @@
 #include "esp_bt.h"
 #include "esp_bt_defs.h"
 #include "esp_gap_bt_api.h"
-
 #include "a2dpSinkHfpHf.h"
 #include "a2dpSink.h"
 #include "bt_gap.h"
-#include "bt_app_core.h"
 #include "bt_app_hf.h"
 #include "bt_i2s.h"
 #include "codec.h"
@@ -37,12 +35,11 @@ static char s_country_code[4] = DEFAULT_COUNTRY_CODE;
  * @brief Initialize all BT subsystems in sequence
  * 
  * Steps:
- * 1. BT application core task (work dispatcher)
- * 2. I2S audio interface configuration and initialization
- * 3. Audio codec (mSBC for HFP/A2DP)
- * 4. GAP layer (device discovery, pairing, authentication)
- * 5. HFP Hands-Free profile
- * 6. A2DP Sink profile
+ * 1. I2S audio interface configuration and initialization
+ * 2. Audio codec (mSBC for HFP/A2DP)
+ * 3. GAP layer (device discovery, pairing, authentication)
+ * 4. HFP Hands-Free profile
+ * 5. A2DP Sink profile
  */
 esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
 {
@@ -67,15 +64,14 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
     esp_err_t ret;
 
     // ===== STEP 0: Initialize Bluetooth Controller & Bluedroid =====
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[0/6] Initializing Bluetooth Controller");
-    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[0/5] Initializing Bluetooth Controller");
+
     // Release BLE memory (Classic BT only)
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
 
     // Initialize BT Controller
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     bt_cfg.mode = ESP_BT_MODE_CLASSIC_BT;
-    
     ret = esp_bt_controller_init(&bt_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to init BT controller: %s", esp_err_to_name(ret));
@@ -87,14 +83,13 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to enable BT controller: %s", esp_err_to_name(ret));
         return ret;
     }
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ BT Controller initialized");
+
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ BT Controller initialized");
 
     // Initialize Bluedroid with SSP disabled
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[0/6] Initializing Bluedroid Stack");
-    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[0/5] Initializing Bluedroid Stack");
     esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
     bluedroid_cfg.ssp_en = false;  // Disable SSP - use classic PIN pairing
-
     ret = esp_bluedroid_init_with_cfg(&bluedroid_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to init Bluedroid: %s", esp_err_to_name(ret));
@@ -106,28 +101,24 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to enable Bluedroid: %s", esp_err_to_name(ret));
         return ret;
     }
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ Bluedroid initialized (SSP disabled)");
 
-    // ===== STEP 1: Initialize BT application core task =====
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[1/6] Initializing BT application core task");
-    bt_app_task_start_up();
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ BT application core task initialized");
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ Bluedroid initialized (SSP disabled)");
 
-    // ===== STEP 2: Initialize I2S interface =====
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[2/6] Initializing I2S interface");
+    // ===== STEP 1: Initialize I2S interface =====
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[1/5] Initializing I2S interface");
     bt_i2s_set_tx_I2S_pins(config->i2s_tx_bck, config->i2s_tx_ws, config->i2s_tx_dout, 0);
     bt_i2s_set_rx_I2S_pins(config->i2s_rx_bck, config->i2s_rx_ws, 0, config->i2s_rx_din);
     bt_i2s_init();
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ I2S interface initialized");
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ I2S interface initialized");
 
-    // ===== STEP 3: Initialize audio codec =====
-/*     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[3/6] Initializing audio codec (mSBC)");
+    // ===== STEP 2: Initialize audio codec =====
+    /* ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[2/5] Initializing audio codec (mSBC)");
     msbc_enc_open();
     msbc_dec_open();
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "      ✓ Audio codec initialized"); */
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ Audio codec initialized"); */
 
-    // ===== STEP 4: Initialize GAP layer =====
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[4/6] Initializing GAP layer");
+    // ===== STEP 3: Initialize GAP layer =====
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[3/5] Initializing GAP layer");
     ret = bt_gap_init();
     if (ret != ESP_OK) {
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to initialize GAP: %d", ret);
@@ -139,10 +130,11 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to set device name: %d", ret);
         goto err_cleanup;
     }
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "      ✓ GAP layer initialized");
 
-    // ===== STEP 5: Initialize HFP Hands-Free profile =====
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[5/6] Initializing HFP Hands-Free profile");
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ GAP layer initialized");
+
+    // ===== STEP 4: Initialize HFP Hands-Free profile =====
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[4/5] Initializing HFP Hands-Free profile");
     phonebook_init();
     phonebook_set_country_code(s_country_code);  // Netherlands - change as needed
 
@@ -160,14 +152,16 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to initialize HFP client: %d", ret);
         goto err_cleanup;
     }
+
     esp_pbac_register_callback(bt_app_pbac_cb);
     esp_pbac_init();
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "      ✓ HFP Hands-Free profile initialized");
 
-    // ===== STEP 6: Initialize A2DP Sink profile =====
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[6/6] Initializing A2DP Sink profile");
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ HFP Hands-Free profile initialized");
+
+    // ===== STEP 5: Initialize A2DP Sink profile =====
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[5/5] Initializing A2DP Sink profile");
     a2dp_sink_init();
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ A2DP Sink profile initialized");
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ A2DP Sink profile initialized");
 
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "========================================");
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "✓ Component initialized successfully!");
@@ -180,6 +174,7 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to set scan mode: %s", esp_err_to_name(ret));
         return ret;
     }
+
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "✓ Device is now discoverable and connectable");
 
     s_component_initialized = true;
@@ -200,7 +195,6 @@ err_cleanup:
  * 3. GAP layer
  * 4. Audio codec
  * 5. I2S interface
- * 6. BT application core task
  */
 esp_err_t a2dpSinkHfpHf_deinit(void)
 {
@@ -232,10 +226,6 @@ esp_err_t a2dpSinkHfpHf_deinit(void)
     // Deinitialize I2S
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Deinitializing I2S");
     bt_i2s_driver_uninstall();
-
-    // Stop BT application core task
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Stopping BT application core task");
-    bt_app_task_shut_down();
 
     s_component_initialized = false;
 
@@ -302,6 +292,7 @@ esp_err_t a2dpSinkHfpHf_set_country_code(const char *country_code)
 
     strncpy(s_country_code, country_code, sizeof(s_country_code) - 1);
     s_country_code[sizeof(s_country_code) - 1] = '\0';
+
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Country code set to: %s", s_country_code);
     return ESP_OK;
 }

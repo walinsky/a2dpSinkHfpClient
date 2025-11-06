@@ -31,17 +31,17 @@ static uint8_t peer_bdname_len = 0;
  * @param size Size of output buffer (minimum 18 bytes)
  * @return Pointer to string or NULL on error
  */
-static char *bda2str(esp_bd_addr_t bda, char *str, size_t size)
+static char *bda2str(const esp_bd_addr_t bda, char *str, size_t size)
 {
     if (bda == NULL || str == NULL || size < 18) {
         return NULL;
     }
-
-    uint8_t *p = bda;
-    sprintf(str, "%02x:%02x:%02x:%02x:%02x:%02x",
-            p[0], p[1], p[2], p[3], p[4], p[5]);
+    const uint8_t *p = bda;  // Add 'const' here
+    snprintf(str, size, "%02x:%02x:%02x:%02x:%02x:%02x",
+             p[0], p[1], p[2], p[3], p[4], p[5]);
     return str;
 }
+
 
 /**
  * @brief Extract device name from EIR (Extended Inquiry Response) data
