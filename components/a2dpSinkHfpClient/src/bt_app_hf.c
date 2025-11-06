@@ -10,8 +10,6 @@
 #include <string.h>
 #include <inttypes.h>
 #include "esp_log.h"
-
-#include "bt_app_core.h"
 #include "bt_app_hf.h"
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
@@ -26,7 +24,7 @@
 #include "time.h"
 #include "sys/time.h"
 #include "sdkconfig.h"
-
+#include "driver/i2s_std.h" 
 #include "bt_i2s.h"
 #include "codec.h"
 #include "bt_app_pbac.h"
@@ -186,8 +184,6 @@ QueueHandle_t s_audio_buff_queue = NULL;
 // static int s_audio_buff_cnt = 0;
 static int s_audio_callback_cnt = 0;
 
-extern i2s_chan_handle_t tx_chan;
-extern i2s_chan_handle_t rx_chan;
 static bool s_hfp_audio_connected = false;
 static bool s_inband_ring_enabled = false;
 
@@ -295,7 +291,7 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
                 param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
                 // PAUSE PHONEBOOK DURING CALL
-                bt_app_pbac_pause();
+                // bt_app_pbac_pause();
                 // Stop ringtone when phone audio connects
                 ringtone_stop();
                 s_sync_conn_hdl = param->audio_stat.sync_conn_handle;
@@ -305,12 +301,11 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
                 ESP_LOGI(BT_HF_TAG, "%s ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED", __func__);
                 // RESUME PHONEBOOK AFTER CALL
-                bt_app_pbac_resume();
+                // bt_app_pbac_resume();
                 s_sync_conn_hdl = 0;
                 s_msbc_air_mode = false;
                 s_hfp_audio_connected = false;
-                static TaskHandle_t s_hfp_kill_audio_task_handle;
-                xTaskCreate(&kill_hfp_audio_task, "Kill HPF AUDIO", 4096, NULL, 5, &s_hfp_kill_audio_task_handle);
+                bt_i2s_hfp_stop();
             }
     #endif /* #if CONFIG_BT_HFP_AUDIO_DATA_PATH_HCI && CONFIG_BT_HFP_USE_EXTERNAL_CODEC */
             break;
@@ -493,12 +488,3 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             break;
     }
 }
-
-static void kill_hfp_audio_task(void *pvParameters) {
-    ESP_LOGI(BT_HF_TAG, "%s stopping I2S hfp", __func__);
-    bt_i2s_hfp_stop();
-    msbc_enc_reset_frame_count();
-    ESP_LOGI(BT_HF_TAG, "%s, deleting myself",__func__); 
-    vTaskDelete(NULL);
-}
-

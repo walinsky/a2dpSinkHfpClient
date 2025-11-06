@@ -9,7 +9,6 @@
 #include "freertos/task.h"
 #include "a2dpSink.h"
 #include "bt_i2s.h"
-#include "bt_app_core.h"
 #include "codec.h"
 
 #define A2DP_SINK_TAG "A2DP_SINK"
@@ -42,7 +41,6 @@ static void bt_app_a2dp_conn_state_handler(esp_a2d_cb_param_t *param)
     case ESP_A2D_CONNECTION_STATE_DISCONNECTED:
         s_a2dp_connected = false;
         s_audio_stream_active = false;
-        bt_i2s_a2dp_stop();
         break;
 
     case ESP_A2D_CONNECTION_STATE_CONNECTING:
@@ -95,7 +93,7 @@ static void bt_app_a2dp_audio_cfg_handler(esp_a2d_cb_param_t *param)
             ch_count = 1;
         }
 
-        bt_i2s_tx_channel_reconfig_clock_slot(sample_rate, ch_count);
+        bt_i2s_a2dp_set_audio_config(sample_rate, ch_count);
         
         ESP_LOGI(A2DP_SINK_TAG, "Audio codec configured:");
         ESP_LOGI(A2DP_SINK_TAG, "  Sample rate: %d Hz", sample_rate);

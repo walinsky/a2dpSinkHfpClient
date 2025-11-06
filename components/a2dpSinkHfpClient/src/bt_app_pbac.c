@@ -9,7 +9,6 @@
 #include "esp_log.h"
 #include "esp_bt.h"
 #include "esp_pbac_api.h"
-#include "bt_app_core.h"
 #include "bt_app_pbac.h"
 #include "phonebook.h"
 #include "freertos/FreeRTOS.h"
@@ -19,8 +18,8 @@
 #define BT_PBAC_TAG "BT_PBAC"
 #define PBAC_QUEUE_SIZE 50
 #define PBAC_TASK_STACK_SIZE 8192
-#define PBAC_TASK_PRIORITY 5
-#define PHONEBOOK_PAGE_SIZE 50
+#define PBAC_TASK_PRIORITY 1
+#define PHONEBOOK_PAGE_SIZE 15
 
 esp_pbac_conn_hdl_t pba_conn_handle;
 
@@ -34,7 +33,7 @@ static TaskHandle_t pbac_task_handle = NULL;
 static uint16_t total_phonebook_size = 0;
 static uint16_t current_offset = 0;
 static bool pagination_in_progress = false;
-static bool s_pbac_paused = false;
+/* static bool s_pbac_paused = false; */
 
 typedef enum {
     PBAC_MSG_DATA_CHUNK,
@@ -49,7 +48,7 @@ typedef struct {
 
 
 
-void bt_app_pbac_pause(void)
+/* void bt_app_pbac_pause(void)
 {
     ESP_LOGI(BT_PBAC_TAG, "Pausing phonebook sync");
     s_pbac_paused = true;
@@ -59,7 +58,7 @@ void bt_app_pbac_resume(void)
 {
     ESP_LOGI(BT_PBAC_TAG, "Resuming phonebook sync");
     s_pbac_paused = false;
-}
+} */
 
 static void pbac_processing_task(void *arg)
 {
@@ -71,13 +70,13 @@ static void pbac_processing_task(void *arg)
         if (xQueueReceive(pbac_data_queue, &msg, portMAX_DELAY) == pdTRUE) {
             
             // Skip processing if paused
-            if (s_pbac_paused) {
+/*             if (s_pbac_paused) {
                 ESP_LOGD(BT_PBAC_TAG, "Phonebook sync paused, skipping message");
                 if (msg.data) {
                     free(msg.data);
                 }
                 continue;
-            }
+            } */
 
             if (msg.type == PBAC_MSG_DATA_CHUNK) {
                 if (current_phonebook != NULL && msg.data != NULL) {

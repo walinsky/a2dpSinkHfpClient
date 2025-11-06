@@ -7,7 +7,6 @@ idf_component_register(
          "src/ringtone.c"
          "src/bt_i2s.c"
          "src/app_hf_msg_set.c"
-         "src/bt_app_core.c"
          "src/bt_app_hf.c"
          "src/bt_app_pbac.c"
 

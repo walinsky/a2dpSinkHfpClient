@@ -7,14 +7,13 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/i2s_std.h"
 #include <math.h>
 
 #define TAG "RINGTONE"
 #define RINGTONE_SAMPLE_RATE 16000
 #define RINGTONE_BUFFER_SIZE 1600  // 100ms of audio
 #define RINGTONE_DURATION_MS 2000   // 2 seconds
-
-extern i2s_chan_handle_t tx_chan;
 
 static TaskHandle_t ringtone_task_handle = NULL;
 static volatile bool ringtone_stop_requested = false;
@@ -62,8 +61,8 @@ static void ringtone_beep_task(void *arg)
         phase += RINGTONE_BUFFER_SIZE;
         
         // Write to I2S
-        if (tx_chan != NULL) {
-            esp_err_t ret = i2s_channel_write(tx_chan, buffer, 
+        if (bt_i2s_get_tx_chan() != NULL) {
+            esp_err_t ret = i2s_channel_write(bt_i2s_get_tx_chan(), buffer, 
                                               RINGTONE_BUFFER_SIZE * sizeof(int16_t), 
                                               &bytes_written, pdMS_TO_TICKS(100));
             if (ret != ESP_OK) {
@@ -78,8 +77,8 @@ static void ringtone_beep_task(void *arg)
     
     // Send brief silence to clean up
     memset(buffer, 0, RINGTONE_BUFFER_SIZE * sizeof(int16_t));
-    if (tx_chan != NULL) {
-        i2s_channel_write(tx_chan, buffer, RINGTONE_BUFFER_SIZE * sizeof(int16_t), 
+    if (bt_i2s_get_tx_chan() != NULL) {
+        i2s_channel_write(bt_i2s_get_tx_chan(), buffer, RINGTONE_BUFFER_SIZE * sizeof(int16_t), 
                          &bytes_written, pdMS_TO_TICKS(100));
     }
     
