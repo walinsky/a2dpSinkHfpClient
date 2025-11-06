@@ -13,10 +13,6 @@ static const char *TAG = "CODEC";
 #define MSBC_BITS_PER_SAMPLE 16
 #define MSBC_FRAME_SIZE_BYTES (MSBC_FRAME_SAMPLES * 2)  // 240 bytes
 
-// Static buffers to avoid fragmentation during encoding
-// static int16_t s_enc_input_buf[MSBC_FRAME_SAMPLES];
-// static uint8_t s_enc_output_buf[MSBC_ENCODED_SIZE];
-
 // Static handles for encoder and decoder
 static void *encoder_handle = NULL;
 static void *decoder_handle = NULL;
@@ -24,9 +20,6 @@ static void *a2dp_decoder_handle = NULL;
 
 // Encoder serialization mutex (thread-safe access)
 static SemaphoreHandle_t s_encoder_mutex = NULL;
-
-static uint16_t s_enc_frame_count = 0;
-// static uint8_t s_skip_first_enc_call = 1;
 
 int msbc_enc_open(void)
 {
@@ -158,12 +151,6 @@ int msbc_enc_data(const uint8_t *in_data, size_t in_data_len,
     *out_data_len = out_frame.encoded_bytes;  // Changed from out_frame.len
     ESP_LOGD(TAG, "Encoded %zu bytes to %d bytes", in_data_len, out_frame.encoded_bytes);
     return 0;
-}
-
-// Reset encoder frame count when HFP disconnects
-void msbc_enc_reset_frame_count(void)
-{
-    s_enc_frame_count = 0;
 }
 
 int msbc_dec_data(const uint8_t *in_data, size_t in_data_len,

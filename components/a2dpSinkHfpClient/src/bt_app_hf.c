@@ -309,8 +309,7 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
                 s_sync_conn_hdl = 0;
                 s_msbc_air_mode = false;
                 s_hfp_audio_connected = false;
-                static TaskHandle_t s_hfp_kill_audio_task_handle;
-                xTaskCreate(&kill_hfp_audio_task, "Kill HPF AUDIO", 4096, NULL, 5, &s_hfp_kill_audio_task_handle);
+                bt_i2s_hfp_stop();
             }
     #endif /* #if CONFIG_BT_HFP_AUDIO_DATA_PATH_HCI && CONFIG_BT_HFP_USE_EXTERNAL_CODEC */
             break;
@@ -493,12 +492,3 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             break;
     }
 }
-
-static void kill_hfp_audio_task(void *pvParameters) {
-    ESP_LOGI(BT_HF_TAG, "%s stopping I2S hfp", __func__);
-    bt_i2s_hfp_stop();
-    msbc_enc_reset_frame_count();
-    ESP_LOGI(BT_HF_TAG, "%s, deleting myself",__func__); 
-    vTaskDelete(NULL);
-}
-
