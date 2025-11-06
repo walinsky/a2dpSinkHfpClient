@@ -625,7 +625,7 @@ void bt_i2s_hfp_task_init(void)
         return;
     }
     s_bt_i2s_hfp_tx_task_running = true;
-    xTaskCreate(bt_i2s_hfp_tx_task_handler, "BtI2ShfpTxTask", 2048, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_hfp_tx_task_handle);
+    xTaskCreate(bt_i2s_hfp_tx_task_handler, "BtI2ShfpTxTask", 4096, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_hfp_tx_task_handle);
     
     s_i2s_hfp_rx_ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
     if ((s_i2s_hfp_rx_ringbuf = xRingbufferCreate(RINGBUF_HFP_RX_HIGHEST_WATER_LEVEL, RINGBUF_TYPE_BYTEBUF)) == NULL) {
@@ -633,7 +633,7 @@ void bt_i2s_hfp_task_init(void)
         return;
     }
     s_bt_i2s_hfp_rx_task_running = true;
-    xTaskCreate(bt_i2s_hfp_rx_task_handler, "BtI2ShfpRxTask", 2048, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_hfp_rx_task_handle);
+    xTaskCreate(bt_i2s_hfp_rx_task_handler, "BtI2ShfpRxTask", 4096, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_hfp_rx_task_handle);
 }
 
 void bt_i2s_hfp_task_deinit(void)
@@ -704,38 +704,33 @@ void bt_i2s_hfp_tx_task_handler(void *arg)
     size_t item_size = 0;
     const size_t item_size_upto = MSBC_FRAME_SAMPLES * 2;
     size_t bytes_written = 0;
-
+    
     ESP_LOGI(BT_I2S_TAG, "%s starting", __func__);
-
-    for (;;) {
-        // Check if we should stop (first priority check)
-        if (!s_bt_i2s_hfp_tx_task_running || s_i2s_tx_mode != I2S_TX_MODE_HFP) {
-            ESP_LOGI(BT_I2S_TAG, "%s - task stopping (running=%d, mode=%d)", 
-                     __func__, s_bt_i2s_hfp_tx_task_running, s_i2s_tx_mode);
-            break;
-        }
-
+    
+    // Main loop - run while task is active AND in HFP mode
+    while (s_bt_i2s_hfp_tx_task_running && s_i2s_tx_mode == I2S_TX_MODE_HFP) {
+        
         // Only process data if not in prefetch mode
         if (s_i2s_hfp_tx_ringbuffer_mode != RINGBUFFER_MODE_PREFETCHING) {
             item_size = 0;
-
-            /* Receive data from ringbuffer with timeout (not blocking forever) */
+            
+            // Receive data from ringbuffer with timeout (not blocking forever)
             data = (uint8_t *)xRingbufferReceiveUpTo(s_i2s_hfp_tx_ringbuf, &item_size, 
                                                       pdMS_TO_TICKS(100), item_size_upto);
-
+            
             if (item_size == 0 || data == NULL) {
                 // Check again if we should stop before logging underflow
                 if (!s_bt_i2s_hfp_tx_task_running || s_i2s_tx_mode != I2S_TX_MODE_HFP) {
                     ESP_LOGI(BT_I2S_TAG, "%s - exiting (no data, task stopping)", __func__);
                     break;
                 }
-
+                
                 ESP_LOGI(BT_I2S_TAG, "%s - tx ringbuffer underflowed! mode changed: RINGBUFFER_MODE_PREFETCHING", __func__);
                 s_i2s_hfp_tx_ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
                 vTaskDelay(pdMS_TO_TICKS(40)); // Give ringbuffer time to prefetch
                 continue;
             }
-
+            
             // We have data - check one more time if we should stop
             if (!s_bt_i2s_hfp_tx_task_running || s_i2s_tx_mode != I2S_TX_MODE_HFP) {
                 // Return the item before exiting
@@ -743,25 +738,25 @@ void bt_i2s_hfp_tx_task_handler(void *arg)
                 ESP_LOGI(BT_I2S_TAG, "%s - exiting (task stopped while processing)", __func__);
                 break;
             }
-
+            
             // Byte-swap inline (no temp buffer needed)
             int16_t *send_data = (int16_t *)data;
-            for (int i = 0; i < (int)item_size / 2; i += 2) {
+            for (int i = 0; i < (int)(item_size / 2); i += 2) {
                 int16_t temp = send_data[i];
                 send_data[i] = send_data[i + 1];
                 send_data[i + 1] = temp;
             }
-
-            // Write to I2S directly (no intermediate buffering)
-            esp_err_t write_ret = i2s_channel_write(tx_chan, send_data, item_size, &bytes_written, portMAX_DELAY);
             
+            // Write to I2S directly (no intermediate buffering)
+            esp_err_t write_ret = i2s_channel_write(tx_chan, send_data, item_size, 
+                                                     &bytes_written, portMAX_DELAY);
             if (write_ret != ESP_OK) {
                 ESP_LOGW(BT_I2S_TAG, "%s - I2S write failed: %d", __func__, write_ret);
             }
-
+            
             // Return item to ringbuffer
             vRingbufferReturnItem(s_i2s_hfp_tx_ringbuf, (void *)data);
-
+            
         } else {
             // Prefetching mode - delay and check if we should stop
             for (int i = 0; i < 4; i++) { // Check 4 times during 40ms delay
@@ -773,7 +768,7 @@ void bt_i2s_hfp_tx_task_handler(void *arg)
             }
         }
     }
-
+    
 exit_task:
     // Give semaphore so s_i2s_hfp_tx_ringbuf can be safely deleted
     ESP_LOGI(BT_I2S_TAG, "%s - task exiting, giving delete semaphore", __func__);
@@ -792,50 +787,54 @@ void bt_i2s_hfp_rx_task_handler(void *arg)
     
     if (!i2s_buffer || !pcm_buffer || !encoded_buffer) {
         ESP_LOGE(BT_I2S_TAG, "Failed to allocate buffers");
+        // Free any that succeeded
+        if (i2s_buffer) free(i2s_buffer);
+        if (pcm_buffer) free(pcm_buffer);
+        if (encoded_buffer) free(encoded_buffer);
+        xSemaphoreGive(s_i2s_hfp_rx_ringbuf_delete);
+        vTaskDelete(NULL);
+        return;
     }
     
-    // Warmup counter for encoder
-    int warmup_frames = 0;
-    #define ENC_WARMUP_FRAMES 5
-
-    size_t bytes_read;    
+    size_t bytes_read;
     
-    while (1) {
-        if (s_bt_i2s_hfp_rx_task_running) {
-            esp_err_t ret = i2s_channel_read(rx_chan, i2s_buffer, 
-                                            MSBC_FRAME_SAMPLES * sizeof(int32_t), 
-                                            &bytes_read, portMAX_DELAY);
-            
-            if (ret == ESP_OK && bytes_read > 0) {
-                i2s_32bit_to_16bit_pcm(i2s_buffer, pcm_buffer, MSBC_FRAME_SAMPLES);
-
-                // Skip first few frames to warm up encoder
-                if (warmup_frames < ENC_WARMUP_FRAMES) {
-                    ESP_LOGD(BT_I2S_TAG, "RX: Encoder warmup frame %d/%d", 
-                            warmup_frames + 1, ENC_WARMUP_FRAMES);
-                    warmup_frames++;
-                    memset(encoded_buffer, 0, ESP_HF_MSBC_ENCODED_FRAME_SIZE);
-                    bt_i2s_hfp_write_rx_ringbuf(encoded_buffer, ESP_HF_MSBC_ENCODED_FRAME_SIZE);
-                    continue;
-                }
-
-                // Now encode for real
-                size_t encoded_len;
-                if (msbc_enc_data(pcm_buffer, MSBC_FRAME_SAMPLES * 2, 
-                                encoded_buffer, &encoded_len) == 0) {
-                    bt_i2s_hfp_write_rx_ringbuf(encoded_buffer, ESP_HF_MSBC_ENCODED_FRAME_SIZE);
-                }
+    // Main loop - run while task is active
+    while (s_bt_i2s_hfp_rx_task_running) {
+        esp_err_t ret = i2s_channel_read(rx_chan, i2s_buffer, 
+                                          MSBC_FRAME_SAMPLES * sizeof(int32_t), 
+                                          &bytes_read, portMAX_DELAY);
+        
+        if (ret != ESP_OK || bytes_read == 0) {
+            // Check if we should stop
+            if (!s_bt_i2s_hfp_rx_task_running) {
+                break;
             }
-        } else { /* if (s_bt_i2s_hfp_rx_task_running) */
-            free(i2s_buffer);
-            free(pcm_buffer);
-            free(encoded_buffer);
-            // give semaphore so s_i2s_hfp_rx_ringbuf can be safely deleted
-            xSemaphoreGive(s_i2s_hfp_rx_ringbuf_delete);
-            ESP_LOGI(BT_I2S_TAG, "%s, deleting myself",__func__); 
-            vTaskDelete(NULL);
-        } /* if (s_bt_i2s_hfp_rx_task_running) */
+            continue;
+        }
+        
+        // Convert I2S 32-bit to 16-bit PCM
+        i2s_32bit_to_16bit_pcm(i2s_buffer, pcm_buffer, MSBC_FRAME_SAMPLES);
+        
+        // Encode the PCM data
+        size_t encoded_len;
+        if (msbc_enc_data(pcm_buffer, MSBC_FRAME_SAMPLES * 2, 
+                         encoded_buffer, &encoded_len) == 0) {
+            // Write encoded data to ringbuffer for transmission
+            bt_i2s_hfp_write_rx_ringbuf(encoded_buffer, ESP_HF_MSBC_ENCODED_FRAME_SIZE);
+        }
+        // Note: If encoding fails, we just skip this frame and continue
     }
+    
+    // Cleanup after loop exits
+    free(i2s_buffer);
+    free(pcm_buffer);
+    free(encoded_buffer);
+    
+    // Give semaphore so s_i2s_hfp_rx_ringbuf can be safely deleted
+    xSemaphoreGive(s_i2s_hfp_rx_ringbuf_delete);
+    
+    ESP_LOGI(BT_I2S_TAG, "%s, deleting myself", __func__);
+    vTaskDelete(NULL);
 }
 
 /* 
@@ -1092,6 +1091,13 @@ void bt_i2s_a2dp_stop(void) {
         return;
     }
     
+    // This tells TX task to stop and prevents new data
+    s_i2s_tx_mode = I2S_TX_MODE_NONE;
+    // Give it the semaphore to unblock
+    if (s_i2s_tx_semaphore != NULL) {
+        xSemaphoreGive(s_i2s_tx_semaphore);
+    }
+
     // Signal both tasks to exit
     s_bt_i2s_a2dp_decode_task_running = false;
     s_bt_i2s_a2dp_tx_task_running = false;
@@ -1108,11 +1114,9 @@ void bt_i2s_a2dp_stop(void) {
     // Wait for both tasks to exit
     if (xSemaphoreTake(s_a2dp_decode_task_exit_sem, pdMS_TO_TICKS(1000)) != pdTRUE) {
         ESP_LOGE(BT_I2S_TAG, "Failed to acquire a2dp decode task exit semaphore");
-        return;
     }
         if (xSemaphoreTake(s_a2dp_tx_task_exit_sem, pdMS_TO_TICKS(1000)) != pdTRUE) {
         ESP_LOGE(BT_I2S_TAG, "Failed to acquire a2dp tx task exit semaphore");
-        return;
     }
 
     /* stop our decoding task, and delete its buffer */
