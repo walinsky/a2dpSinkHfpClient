@@ -42,7 +42,6 @@ static void bt_app_a2dp_conn_state_handler(esp_a2d_cb_param_t *param)
     case ESP_A2D_CONNECTION_STATE_DISCONNECTED:
         s_a2dp_connected = false;
         s_audio_stream_active = false;
-        bt_i2s_a2dp_stop();
         break;
 
     case ESP_A2D_CONNECTION_STATE_CONNECTING:
