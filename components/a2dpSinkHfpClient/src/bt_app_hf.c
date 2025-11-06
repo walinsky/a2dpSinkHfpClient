@@ -24,7 +24,7 @@
 #include "time.h"
 #include "sys/time.h"
 #include "sdkconfig.h"
-
+#include "driver/i2s_std.h" 
 #include "bt_i2s.h"
 #include "codec.h"
 #include "bt_app_pbac.h"
@@ -184,8 +184,6 @@ QueueHandle_t s_audio_buff_queue = NULL;
 // static int s_audio_buff_cnt = 0;
 static int s_audio_callback_cnt = 0;
 
-extern i2s_chan_handle_t tx_chan;
-extern i2s_chan_handle_t rx_chan;
 static bool s_hfp_audio_connected = false;
 static bool s_inband_ring_enabled = false;
 
