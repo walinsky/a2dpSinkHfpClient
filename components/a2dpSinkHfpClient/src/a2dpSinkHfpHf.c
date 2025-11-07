@@ -11,6 +11,7 @@
 #include "esp_bt.h"
 #include "esp_bt_defs.h"
 #include "esp_gap_bt_api.h"
+
 #include "a2dpSinkHfpHf.h"
 #include "a2dpSink.h"
 #include "bt_app_avrc.h"
@@ -34,7 +35,7 @@ static char s_country_code[4] = DEFAULT_COUNTRY_CODE;
 
 /**
  * @brief Initialize all BT subsystems in sequence
- * 
+ *
  * Steps:
  * 1. I2S audio interface configuration and initialization
  * 2. Audio codec (mSBC for HFP/A2DP)
@@ -73,6 +74,7 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
     // Initialize BT Controller
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     bt_cfg.mode = ESP_BT_MODE_CLASSIC_BT;
+
     ret = esp_bt_controller_init(&bt_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to init BT controller: %s", esp_err_to_name(ret));
@@ -89,8 +91,10 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
 
     // Initialize Bluedroid with SSP disabled
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[0/5] Initializing Bluedroid Stack");
+
     esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
     bluedroid_cfg.ssp_en = false;  // Disable SSP - use classic PIN pairing
+
     ret = esp_bluedroid_init_with_cfg(&bluedroid_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to init Bluedroid: %s", esp_err_to_name(ret));
@@ -161,9 +165,11 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
 
     // ===== STEP 5: Initialize A2DP Sink profile =====
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[5/5] Initializing A2DP Sink profile");
+
     // Initialize AVRCP before A2DP
     bt_app_avrc_init();
     a2dp_sink_init();
+
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ A2DP Sink profile initialized");
 
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "========================================");
@@ -191,7 +197,7 @@ err_cleanup:
 
 /**
  * @brief Deinitialize all BT subsystems
- * 
+ *
  * Reverses initialization in opposite order:
  * 1. A2DP Sink profile
  * 2. HFP Hands-Free profile
@@ -250,7 +256,6 @@ esp_err_t a2dpSinkHfpHf_start_discovery(void)
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
         return ESP_ERR_INVALID_STATE;
     }
-
     return bt_gap_start_discovery();
 }
 
@@ -260,7 +265,6 @@ esp_err_t a2dpSinkHfpHf_cancel_discovery(void)
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
         return ESP_ERR_INVALID_STATE;
     }
-
     return bt_gap_cancel_discovery();
 }
 
@@ -278,7 +282,7 @@ bool a2dpSinkHfpHf_is_connected(void)
 /**
  * @brief Set the country code for phonebook international number formatting
  * Must be called BEFORE a2dpSinkHfpHf_init()
- * 
+ *
  * @param country_code Two or three digit country code (e.g., "31" for Netherlands)
  * @return ESP_OK on success
  */
@@ -299,4 +303,58 @@ esp_err_t a2dpSinkHfpHf_set_country_code(const char *country_code)
 
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Country code set to: %s", s_country_code);
     return ESP_OK;
+}
+
+// ============================================================================
+// AVRC PUBLIC API (Wrappers to bt_app_avrc.c)
+// ============================================================================
+
+void a2dpSinkHfpHf_register_avrc_conn_callback(bt_avrc_conn_state_cb_t callback)
+{
+    bt_app_avrc_register_conn_callback(callback);
+}
+
+void a2dpSinkHfpHf_register_avrc_metadata_callback(bt_avrc_metadata_cb_t callback)
+{
+    bt_app_avrc_register_metadata_callback(callback);
+}
+
+void a2dpSinkHfpHf_register_avrc_playback_callback(bt_avrc_playback_status_cb_t callback)
+{
+    bt_app_avrc_register_playback_status_callback(callback);
+}
+
+void a2dpSinkHfpHf_register_avrc_volume_callback(bt_avrc_volume_cb_t callback)
+{
+    bt_app_avrc_register_volume_callback(callback);
+}
+
+const bt_avrc_metadata_t* a2dpSinkHfpHf_get_avrc_metadata(void)
+{
+    return bt_app_avrc_get_metadata();
+}
+
+bool a2dpSinkHfpHf_is_avrc_connected(void)
+{
+    return bt_app_avrc_is_connected();
+}
+
+bool a2dpSinkHfpHf_avrc_play(void)
+{
+    return bt_app_avrc_cmd_play();
+}
+
+bool a2dpSinkHfpHf_avrc_pause(void)
+{
+    return bt_app_avrc_cmd_pause();
+}
+
+bool a2dpSinkHfpHf_avrc_next(void)
+{
+    return bt_app_avrc_cmd_next();
+}
+
+bool a2dpSinkHfpHf_avrc_prev(void)
+{
+    return bt_app_avrc_cmd_prev();
 }

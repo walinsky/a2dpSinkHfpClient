@@ -480,7 +480,7 @@ void bt_i2s_a2dp_start(void) {
     /* Start decode task handler */
     s_a2dp_sbc_encoded_ringbuf = xRingbufferCreate(8192, RINGBUF_TYPE_BYTEBUF);
     s_bt_i2s_a2dp_decode_task_running = true;
-    xTaskCreate(bt_i2s_a2dp_decode_task_handler, "BtI2SA2DPDec", 4096, NULL, configMAX_PRIORITIES - 3, &s_bt_i2s_a2dp_decode_task_hdl);
+    xTaskCreate(bt_i2s_a2dp_decode_task_handler, "BtI2SA2DPDec", 8192, NULL, configMAX_PRIORITIES - 3, &s_bt_i2s_a2dp_decode_task_hdl);
     ESP_LOGI(BT_I2S_TAG, "✓ A2DP SBC decoder started");
     
     /* start tx task handler */
@@ -491,7 +491,7 @@ void bt_i2s_a2dp_start(void) {
     }
     
     s_bt_i2s_a2dp_tx_task_running = true;
-    xTaskCreate(bt_i2s_a2dp_tx_task_handler, "BtI2Sa2dpTask", 4096, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_a2dp_tx_task_handle);
+    xTaskCreate(bt_i2s_a2dp_tx_task_handler, "BtI2Sa2dpTask", 6144, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_a2dp_tx_task_handle);
     ESP_LOGI(BT_I2S_TAG, "✓ A2DP tx handler started");
     
     // Configure I2S for A2DP
