@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS "src/a2dpSinkHfpHf.c"
          "src/a2dpSink.c"
+         "src/bt_app_avrc.c" 
          "src/bt_gap.c"
          "src/phonebook.c"
          "src/codec.c"

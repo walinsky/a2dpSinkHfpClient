@@ -1,112 +1,189 @@
 /*
- * Minimal A2DP Sink + HFP Hands-Free Example
- * This is the simplest possible setup to get audio working.
- * Users customize the pin numbers for their hardware.
+ * ESP32 A2DP Sink + HFP + AVRC Example - main.c
+ * 
+ * This example demonstrates how to use the a2dpSinkHfpHf component
+ * with custom PIN code configuration at compile time.
  */
 
+#include <stdio.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_log.h"
 #include "nvs_flash.h"
+#include "esp_log.h"
+
 #include "a2dpSinkHfpHf.h"
 
-#define MAIN_TAG "MAIN"
+#define TAG "MAIN"
 
 // ============================================================================
-// Device name - This is how your device shows up when searching bluetooth
-// ============================================================================
-#define DEVICE_NAME "ESP32-Audio"
-// ============================================================================
-// Country code - Your country code; used in your phonebook
-// ============================================================================
-#define COUNTRY_CODE "31"
-
-// ============================================================================
-// PIN CONFIGURATION - CUSTOMIZE FOR YOUR HARDWARE
+// COMPILE-TIME CONFIGURATION
 // ============================================================================
 
-// I2S TX (audio output to speaker/DAC)
-#define I2S_TX_BCK  26  // Bit clock
-#define I2S_TX_WS   17  // Word select (LRCK)
-#define I2S_TX_DOUT 25  // Data out
+// Set your custom PIN code here (4-16 digits)
+#define BT_PIN_CODE "5678"
+#define BT_PIN_LENGTH 4
 
-// I2S RX (audio input from microphone)
-#define I2S_RX_BCK  16  // Bit clock
-#define I2S_RX_WS   27  // Word select (LRCK)
-#define I2S_RX_DIN  14  // Data in
+// Bluetooth Device Name
+#define BT_DEVICE_NAME      "ESP32-boo"
 
 // ============================================================================
-// APPLICATION ENTRY POINT
+// AVRC CALLBACK EXAMPLES (Optional)
 // ============================================================================
 
-#define HEAP_MONITOR_PERIOD_MS 5000  // Report every 5 seconds
-
-static void heap_monitor_task(void *arg)
+/**
+ * @brief AVRC connection state callback
+ */
+void avrc_conn_callback(bool connected)
 {
-    while (1) {
-        // Get heap information
-        size_t free_heap = esp_get_free_heap_size();
-        size_t min_free_heap = esp_get_minimum_free_heap_size();
-        size_t largest_free_block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-        
-        // Get internal DRAM info
-        size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-        size_t total_internal = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
-        size_t used_internal = total_internal - free_internal;
-        
-        ESP_LOGI("HEAP_MONITOR", 
-                "Free: %d bytes | Min Free: %d bytes | Largest Block: %d bytes | Used: %d/%d (%.1f%%)",
-                free_heap,
-                min_free_heap,
-                largest_free_block,
-                used_internal,
-                total_internal,
-                (used_internal * 100.0f) / total_internal);
-        
-        vTaskDelay(pdMS_TO_TICKS(HEAP_MONITOR_PERIOD_MS));
+    if (connected) {
+        ESP_LOGI(TAG, "AVRC Connected - Remote control active");
+    } else {
+        ESP_LOGI(TAG, "AVRC Disconnected");
     }
 }
 
+/**
+ * @brief AVRC metadata callback (track info)
+ */
+void avrc_metadata_callback(const bt_avrc_metadata_t *metadata)
+{
+    if (metadata && metadata->valid) {
+        ESP_LOGI(TAG, "═══════════════════════════════════════");
+        ESP_LOGI(TAG, "Now Playing:");
+        ESP_LOGI(TAG, "  Title:  %s", metadata->title);
+        ESP_LOGI(TAG, "  Artist: %s", metadata->artist);
+        ESP_LOGI(TAG, "  Album:  %s", metadata->album);
+        if (metadata->track_num > 0) {
+            ESP_LOGI(TAG, "  Track:  %d/%d", metadata->track_num, metadata->total_tracks);
+        }
+        ESP_LOGI(TAG, "═══════════════════════════════════════");
+    }
+}
+
+/**
+ * @brief AVRC playback status callback
+ */
+void avrc_playback_callback(const bt_avrc_playback_status_t *status)
+{
+    const char *status_str[] = {"Stopped", "Playing", "Paused", "Forward Seek", "Reverse Seek", "Error"};
+    
+    if (status->status < 6) {
+        ESP_LOGI(TAG, "Playback Status: %s", status_str[status->status]);
+    }
+    
+    if (status->song_len_ms > 0) {
+        int pos_sec = status->song_pos_ms / 1000;
+        int len_sec = status->song_len_ms / 1000;
+        ESP_LOGI(TAG, "  Position: %d:%02d / %d:%02d", 
+                 pos_sec / 60, pos_sec % 60,
+                 len_sec / 60, len_sec % 60);
+    }
+}
+
+/**
+ * @brief AVRC volume callback
+ */
+void avrc_volume_callback(uint8_t volume)
+{
+    // Volume range: 0-127
+    int percent = (volume * 100) / 127;
+    ESP_LOGI(TAG, "Volume: %d%% (%d/127)", percent, volume);
+}
+
+// ============================================================================
+// MAIN APPLICATION
+// ============================================================================
+
 void app_main(void)
 {
-    ESP_LOGI(MAIN_TAG, "Starting A2DP Sink + HFP Hands-Free application");
+    esp_err_t ret;
 
-    // ===== Step 1: Initialize NVS =====
-    esp_err_t ret = nvs_flash_init();
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "ESP32 A2DP Sink + HFP + AVRC Example");
+    ESP_LOGI(TAG, "========================================");
+
+    // ===== STEP 1: Initialize NVS (Required for Bluetooth) =====
+    ESP_LOGI(TAG, "Initializing NVS...");
+    ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "NVS partition needs to be erased");
         ESP_ERROR_CHECK(nvs_flash_erase());
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-    xTaskCreate(heap_monitor_task, "heap_mon", 3072, NULL, 1, NULL);
+    ESP_LOGI(TAG, "✓ NVS initialized");
 
-    // ===== Step 2: Configure & Initialize Component =====
-    
-    // Set country code BEFORE initialization
-    a2dpSinkHfpHf_set_country_code(COUNTRY_CODE);
-    
+    // ===== STEP 2: Configure PIN Code (BEFORE init) =====
+    ESP_LOGI(TAG, "Setting Bluetooth PIN code...");
+    ret = a2dpSinkHfpHf_set_pin(BT_PIN_CODE, BT_PIN_LENGTH);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "✓ PIN code set to: %s", BT_PIN_CODE);
+        ESP_LOGW(TAG, "⚠️  Use this PIN when pairing with your phone!");
+    } else {
+        ESP_LOGE(TAG, "Failed to set PIN code: %s", esp_err_to_name(ret));
+        return;
+    }
+
+    // ===== STEP 3: Register AVRC Callbacks (Optional) =====
+    ESP_LOGI(TAG, "Registering AVRC callbacks...");
+    a2dpSinkHfpHf_register_avrc_conn_callback(avrc_conn_callback);
+    a2dpSinkHfpHf_register_avrc_metadata_callback(avrc_metadata_callback);
+    a2dpSinkHfpHf_register_avrc_playback_callback(avrc_playback_callback);
+    a2dpSinkHfpHf_register_avrc_volume_callback(avrc_volume_callback);
+    ESP_LOGI(TAG, "✓ AVRC callbacks registered");
+
+    // ===== STEP 4: Configure Component =====
+    // Using direct pin numbers (your preferred method)
     a2dpSinkHfpHf_config_t config = {
-        .device_name = DEVICE_NAME,
-        .i2s_tx_bck = I2S_TX_BCK,
-        .i2s_tx_ws = I2S_TX_WS,
-        .i2s_tx_dout = I2S_TX_DOUT,
-        .i2s_rx_bck = I2S_RX_BCK,
-        .i2s_rx_ws = I2S_RX_WS,
-        .i2s_rx_din = I2S_RX_DIN,
+        .device_name = BT_DEVICE_NAME,
+        .i2s_tx_bck = 26,   // TX BCK
+        .i2s_tx_ws = 17,    // TX WS
+        .i2s_tx_dout = 25,  // TX DOUT
+        .i2s_rx_bck = 16,   // RX BCK
+        .i2s_rx_ws = 27,    // RX WS
+        .i2s_rx_din = 14    // RX DIN
     };
 
-    ESP_ERROR_CHECK(a2dpSinkHfpHf_init(&config));
+    // ===== STEP 5: Initialize Bluetooth Component =====
+    ESP_LOGI(TAG, "Initializing Bluetooth component...");
+    ret = a2dpSinkHfpHf_init(&config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize component: %s", esp_err_to_name(ret));
+        return;
+    }
 
-    // ===== Ready =====
-    ESP_LOGI(MAIN_TAG, "");
-    ESP_LOGI(MAIN_TAG, "========================================");
-    ESP_LOGI(MAIN_TAG, "A2DP Sink + HFP Ready!");
-    ESP_LOGI(MAIN_TAG, "Device Name: %s", a2dpSinkHfpHf_get_device_name());
-    ESP_LOGI(MAIN_TAG, "========================================");
-    ESP_LOGI(MAIN_TAG, "");
-    ESP_LOGI(MAIN_TAG, "Waiting for incoming connections...");
-    ESP_LOGI(MAIN_TAG, "");
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "✓ System Ready!");
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "");
+    ESP_LOGI(TAG, "Device Name: %s", BT_DEVICE_NAME);
+    ESP_LOGI(TAG, "PIN Code:    %s", BT_PIN_CODE);
+    ESP_LOGI(TAG, "");
+    ESP_LOGI(TAG, "I2S Configuration:");
+    ESP_LOGI(TAG, "  TX: BCK=26, WS=17, DOUT=25");
+    ESP_LOGI(TAG, "  RX: BCK=16, WS=27, DIN=14");
+    ESP_LOGI(TAG, "");
+    ESP_LOGI(TAG, "Instructions:");
+    ESP_LOGI(TAG, "1. Scan for Bluetooth devices on your phone");
+    ESP_LOGI(TAG, "2. Look for '%s'", BT_DEVICE_NAME);
+    ESP_LOGI(TAG, "3. When prompted, enter PIN: %s", BT_PIN_CODE);
+    ESP_LOGI(TAG, "4. Play music or make a call");
+    ESP_LOGI(TAG, "========================================");
 
-    // Keep application running
-    vTaskDelay(portMAX_DELAY);
+    // ===== STEP 6: Main Loop (Optional - Control Commands) =====
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        
+        // Example: Check connection status
+        if (a2dpSinkHfpHf_is_connected()) {
+            ESP_LOGD(TAG, "Device connected");
+            
+            // Example: Get current track metadata
+            const bt_avrc_metadata_t *metadata = a2dpSinkHfpHf_get_avrc_metadata();
+            if (metadata && metadata->valid) {
+                ESP_LOGD(TAG, "Current track: %s - %s", metadata->artist, metadata->title);
+            }
+        }
+    }
 }

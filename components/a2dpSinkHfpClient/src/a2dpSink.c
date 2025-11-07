@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "a2dpSink.h"
+#include "bt_app_avrc.h"
 #include "bt_i2s.h"
 #include "codec.h"
 
