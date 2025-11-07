@@ -57,7 +57,6 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
 
     // Store configuration
     memcpy(&s_current_config, config, sizeof(a2dpSinkHfpHf_config_t));
-
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "========================================");
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Initializing A2DP Sink + HFP Hands-Free");
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Device: %s", config->device_name);
@@ -67,14 +66,13 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
 
     // ===== STEP 0: Initialize Bluetooth Controller & Bluedroid =====
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[0/5] Initializing Bluetooth Controller");
-
+    
     // Release BLE memory (Classic BT only)
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
-
+    
     // Initialize BT Controller
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     bt_cfg.mode = ESP_BT_MODE_CLASSIC_BT;
-
     ret = esp_bt_controller_init(&bt_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to init BT controller: %s", esp_err_to_name(ret));
@@ -87,14 +85,12 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
         return ret;
     }
 
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ BT Controller initialized");
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ BT Controller initialized");
 
     // Initialize Bluedroid with SSP disabled
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[0/5] Initializing Bluedroid Stack");
-
     esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
     bluedroid_cfg.ssp_en = false;  // Disable SSP - use classic PIN pairing
-
     ret = esp_bluedroid_init_with_cfg(&bluedroid_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to init Bluedroid: %s", esp_err_to_name(ret));
@@ -107,20 +103,20 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
         return ret;
     }
 
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ Bluedroid initialized (SSP disabled)");
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ Bluedroid initialized (SSP disabled)");
 
     // ===== STEP 1: Initialize I2S interface =====
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[1/5] Initializing I2S interface");
     bt_i2s_set_tx_I2S_pins(config->i2s_tx_bck, config->i2s_tx_ws, config->i2s_tx_dout, 0);
     bt_i2s_set_rx_I2S_pins(config->i2s_rx_bck, config->i2s_rx_ws, 0, config->i2s_rx_din);
     bt_i2s_init();
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ I2S interface initialized");
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ I2S interface initialized");
 
     // ===== STEP 2: Initialize audio codec =====
     /* ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[2/5] Initializing audio codec (mSBC)");
     msbc_enc_open();
     msbc_dec_open();
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ Audio codec initialized"); */
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ Audio codec initialized"); */
 
     // ===== STEP 3: Initialize GAP layer =====
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[3/5] Initializing GAP layer");
@@ -136,7 +132,7 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
         goto err_cleanup;
     }
 
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ GAP layer initialized");
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ GAP layer initialized");
 
     // ===== STEP 4: Initialize HFP Hands-Free profile =====
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[4/5] Initializing HFP Hands-Free profile");
@@ -160,17 +156,15 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
 
     esp_pbac_register_callback(bt_app_pbac_cb);
     esp_pbac_init();
-
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ HFP Hands-Free profile initialized");
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ HFP Hands-Free profile initialized");
 
     // ===== STEP 5: Initialize A2DP Sink profile =====
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[5/5] Initializing A2DP Sink profile");
-
+    
     // Initialize AVRCP before A2DP
     bt_app_avrc_init();
     a2dp_sink_init();
-
-    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ A2DP Sink profile initialized");
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ A2DP Sink profile initialized");
 
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "========================================");
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "✓ Component initialized successfully!");
@@ -238,7 +232,6 @@ esp_err_t a2dpSinkHfpHf_deinit(void)
     bt_i2s_driver_uninstall();
 
     s_component_initialized = false;
-
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "========================================");
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "✓ Component deinitialized");
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "========================================");
@@ -256,6 +249,7 @@ esp_err_t a2dpSinkHfpHf_start_discovery(void)
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
         return ESP_ERR_INVALID_STATE;
     }
+
     return bt_gap_start_discovery();
 }
 
@@ -265,6 +259,7 @@ esp_err_t a2dpSinkHfpHf_cancel_discovery(void)
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
         return ESP_ERR_INVALID_STATE;
     }
+
     return bt_gap_cancel_discovery();
 }
 
@@ -282,7 +277,7 @@ bool a2dpSinkHfpHf_is_connected(void)
 /**
  * @brief Set the country code for phonebook international number formatting
  * Must be called BEFORE a2dpSinkHfpHf_init()
- *
+ * 
  * @param country_code Two or three digit country code (e.g., "31" for Netherlands)
  * @return ESP_OK on success
  */
@@ -300,9 +295,34 @@ esp_err_t a2dpSinkHfpHf_set_country_code(const char *country_code)
 
     strncpy(s_country_code, country_code, sizeof(s_country_code) - 1);
     s_country_code[sizeof(s_country_code) - 1] = '\0';
-
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Country code set to: %s", s_country_code);
     return ESP_OK;
+}
+
+// ============================================================================
+// PIN CODE API (Wrapper to bt_gap.c)
+// ============================================================================
+
+/**
+ * @brief Set Bluetooth pairing PIN code
+ * Must be called BEFORE a2dpSinkHfpHf_init() to take effect
+ */
+esp_err_t a2dpSinkHfpHf_set_pin(const char *pin_code, uint8_t pin_len)
+{
+    if (s_component_initialized) {
+        ESP_LOGW(A2DP_SINK_HFP_HF_TAG, "Cannot change PIN after initialization");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    return bt_gap_set_pin(pin_code, pin_len);
+}
+
+/**
+ * @brief Get current PIN code configuration
+ */
+esp_err_t a2dpSinkHfpHf_get_pin(char *pin_code, uint8_t *pin_len)
+{
+    return bt_gap_get_pin(pin_code, pin_len);
 }
 
 // ============================================================================

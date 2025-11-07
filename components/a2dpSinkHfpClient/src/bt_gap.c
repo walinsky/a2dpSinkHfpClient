@@ -1,5 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
+ *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
 
@@ -21,8 +22,13 @@ static char s_device_name[250] = {0};
 
 /* Target remote device name to search for */
 static const char *remote_device_name = "ESP_HF_SERVER";
+
 static char peer_bdname[ESP_BT_GAP_MAX_BDNAME_LEN + 1] = {0};
 static uint8_t peer_bdname_len = 0;
+
+/* Configurable PIN code for pairing */
+static char s_pin_code[ESP_BT_PIN_CODE_LEN] = {'1', '2', '3', '4'}; // Default PIN
+static uint8_t s_pin_len = 4; // Default PIN length
 
 /**
  * @brief Convert Bluetooth address to string format
@@ -36,12 +42,11 @@ static char *bda2str(const esp_bd_addr_t bda, char *str, size_t size)
     if (bda == NULL || str == NULL || size < 18) {
         return NULL;
     }
-    const uint8_t *p = bda;  // Add 'const' here
+    const uint8_t *p = bda;
     snprintf(str, size, "%02x:%02x:%02x:%02x:%02x:%02x",
              p[0], p[1], p[2], p[3], p[4], p[5]);
     return str;
 }
-
 
 /**
  * @brief Extract device name from EIR (Extended Inquiry Response) data
@@ -75,9 +80,11 @@ static bool get_name_from_eir(uint8_t *eir, char *bdname, uint8_t *bdname_len)
             memcpy(bdname, rmt_bdname, rmt_bdname_len);
             bdname[rmt_bdname_len] = '\0';
         }
+
         if (bdname_len) {
             *bdname_len = rmt_bdname_len;
         }
+
         return true;
     }
 
@@ -93,101 +100,105 @@ void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
     char bda_str[18] = {0};
 
     switch (event) {
-        case ESP_BT_GAP_DISC_RES_EVT: {
-            /* Device discovery result */
-            for (int i = 0; i < param->disc_res.num_prop; i++) {
-                if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_EIR &&
-                    get_name_from_eir(param->disc_res.prop[i].val, peer_bdname, &peer_bdname_len)) {
-                    
-                    /* Check if this is the target device */
-                    if (strcmp(peer_bdname, remote_device_name) == 0) {
-                        memcpy(peer_addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
-                        
-                        ESP_LOGI(BT_GAP_TAG, "Found target device: %s", peer_bdname);
-                        ESP_LOGI(BT_GAP_TAG, "Device address: %s",
-                                 bda2str(param->disc_res.bda, bda_str, sizeof(bda_str)));
-                        ESP_LOG_BUFFER_HEX(BT_GAP_TAG, peer_addr, ESP_BD_ADDR_LEN);
-                        
-                        /* Cancel discovery and connect */
-                        esp_bt_gap_cancel_discovery();
-                    }
+    case ESP_BT_GAP_DISC_RES_EVT: {
+        /* Device discovery result */
+        for (int i = 0; i < param->disc_res.num_prop; i++) {
+            if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_EIR &&
+                get_name_from_eir(param->disc_res.prop[i].val, peer_bdname, &peer_bdname_len)) {
+
+                /* Check if this is the target device */
+                if (strcmp(peer_bdname, remote_device_name) == 0) {
+                    memcpy(peer_addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
+                    ESP_LOGI(BT_GAP_TAG, "Found target device: %s", peer_bdname);
+                    ESP_LOGI(BT_GAP_TAG, "Device address: %s",
+                             bda2str(param->disc_res.bda, bda_str, sizeof(bda_str)));
+                    ESP_LOG_BUFFER_HEX(BT_GAP_TAG, peer_addr, ESP_BD_ADDR_LEN);
+
+                    /* Cancel discovery and connect */
+                    esp_bt_gap_cancel_discovery();
                 }
+                break;
             }
-            break;
         }
+        break;
+    }
 
-        case ESP_BT_GAP_DISC_STATE_CHANGED_EVT:
-            if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STARTED) {
-                ESP_LOGI(BT_GAP_TAG, "Discovery started");
-            } else if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
-                ESP_LOGI(BT_GAP_TAG, "Discovery stopped");
-            }
-            break;
-
-        case ESP_BT_GAP_RMT_SRVC_REC_EVT:
-            ESP_LOGI(BT_GAP_TAG, "Remote services resolved");
-            break;
-
-        case ESP_BT_GAP_AUTH_CMPL_EVT: {
-            if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
-                char bda_str[18];
-                bda2str(param->auth_cmpl.bda, bda_str, sizeof(bda_str));
-                
-                // Store peer address for later use
-                memcpy(peer_addr, param->auth_cmpl.bda, ESP_BD_ADDR_LEN);
-                
-                ESP_LOGI(BT_GAP_TAG, "Authentication success: %s", bda_str);
-                
-                // **Auto-connect HFP after successful authentication**
-                ESP_LOGI(BT_GAP_TAG, "Initiating HFP connection to: %s", bda_str);
-                esp_hf_client_connect(param->auth_cmpl.bda);
-                
-            } else {
-                ESP_LOGE(BT_GAP_TAG, "Authentication failed, status: 0x%x", param->auth_cmpl.stat);
-            }
-            break;
+    case ESP_BT_GAP_DISC_STATE_CHANGED_EVT:
+        if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STARTED) {
+            ESP_LOGI(BT_GAP_TAG, "Discovery started");
+        } else if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
+            ESP_LOGI(BT_GAP_TAG, "Discovery stopped");
         }
+        break;
 
-        case ESP_BT_GAP_PIN_REQ_EVT: {
-            ESP_LOGI(BT_GAP_TAG, "PIN request (min_16_digit: %d)",
-                     param->pin_req.min_16_digit);
+    case ESP_BT_GAP_RMT_SRVC_REC_EVT:
+        ESP_LOGI(BT_GAP_TAG, "Remote services resolved");
+        break;
+
+    case ESP_BT_GAP_AUTH_CMPL_EVT: {
+        if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
+            char bda_str[18];
+            bda2str(param->auth_cmpl.bda, bda_str, sizeof(bda_str));
+
+            // Store peer address for later use
+            memcpy(peer_addr, param->auth_cmpl.bda, ESP_BD_ADDR_LEN);
+            ESP_LOGI(BT_GAP_TAG, "Authentication success: %s", bda_str);
+
+            // Auto-connect HFP after successful authentication
+            ESP_LOGI(BT_GAP_TAG, "Initiating HFP connection to: %s", bda_str);
+            esp_hf_client_connect(param->auth_cmpl.bda);
+        } else {
+            ESP_LOGE(BT_GAP_TAG, "Authentication failed, status: 0x%x", param->auth_cmpl.stat);
+        }
+        break;
+    }
+
+    case ESP_BT_GAP_PIN_REQ_EVT: {
+        ESP_LOGI(BT_GAP_TAG, "PIN request (min_16_digit: %d)",
+                 param->pin_req.min_16_digit);
+        
+        esp_bt_pin_code_t pin_code;
+        
+        if (param->pin_req.min_16_digit) {
+            // Device requires 16-digit PIN (rare)
+            ESP_LOGI(BT_GAP_TAG, "Input pin code: 0000 0000 0000 0000");
+            memset(pin_code, '0', 16);
+            esp_bt_gap_pin_reply(param->pin_req.bda, true, 16, pin_code);
+        } else {
+            // Use configured PIN code
+            memcpy(pin_code, s_pin_code, s_pin_len);
             
-            esp_bt_pin_code_t pin_code;
-            if (param->pin_req.min_16_digit) {
-                ESP_LOGI(BT_GAP_TAG, "Input pin code: 0000 0000 0000 0000");
-                memset(pin_code, 0, sizeof(pin_code));
-                esp_bt_gap_pin_reply(param->pin_req.bda, true, 16, pin_code);
-            } else {
-                ESP_LOGI(BT_GAP_TAG, "Input pin code: 1234");
-                pin_code[0] = '1';
-                pin_code[1] = '2';
-                pin_code[2] = '3';
-                pin_code[3] = '4';
-                esp_bt_gap_pin_reply(param->pin_req.bda, true, 4, pin_code);
-            }
-            break;
+            // Log PIN with proper formatting
+            char pin_str[17] = {0};
+            memcpy(pin_str, s_pin_code, s_pin_len);
+            pin_str[s_pin_len] = '\0';
+            ESP_LOGI(BT_GAP_TAG, "Input pin code: %s", pin_str);
+            
+            esp_bt_gap_pin_reply(param->pin_req.bda, true, s_pin_len, pin_code);
         }
+        break;
+    }
 
-        case ESP_BT_GAP_CFM_REQ_EVT:
-            ESP_LOGI(BT_GAP_TAG, "SSP Confirmation request");
-            esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
-            break;
+    case ESP_BT_GAP_CFM_REQ_EVT:
+        ESP_LOGI(BT_GAP_TAG, "SSP Confirmation request");
+        esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
+        break;
 
-        case ESP_BT_GAP_MODE_CHG_EVT:
-            ESP_LOGI(BT_GAP_TAG, "Mode change: %d", param->mode_chg.mode);
-            break;
+    case ESP_BT_GAP_MODE_CHG_EVT:
+        ESP_LOGI(BT_GAP_TAG, "Mode change: %d", param->mode_chg.mode);
+        break;
 
-        case ESP_BT_GAP_GET_DEV_NAME_CMPL_EVT:
-            if (param->get_dev_name_cmpl.status == ESP_BT_STATUS_SUCCESS) {
-                ESP_LOGI(BT_GAP_TAG, "Get device name complete");
-            } else {
-                ESP_LOGW(BT_GAP_TAG, "Failed to retrieve device name");
-            }
-            break;
+    case ESP_BT_GAP_GET_DEV_NAME_CMPL_EVT:
+        if (param->get_dev_name_cmpl.status == ESP_BT_STATUS_SUCCESS) {
+            ESP_LOGI(BT_GAP_TAG, "Get device name complete");
+        } else {
+            ESP_LOGW(BT_GAP_TAG, "Failed to retrieve device name");
+        }
+        break;
 
-        default:
-            ESP_LOGD(BT_GAP_TAG, "Unhandled GAP event: %d", event);
-            break;
+    default:
+        ESP_LOGD(BT_GAP_TAG, "Unhandled GAP event: %d", event);
+        break;
     }
 }
 
@@ -202,6 +213,7 @@ esp_err_t bt_gap_init(void)
     } else {
         ESP_LOGE(BT_GAP_TAG, "Failed to register GAP callback: %d", ret);
     }
+
     return ret;
 }
 
@@ -214,6 +226,7 @@ esp_err_t bt_gap_deinit(void)
     if (ret == ESP_OK) {
         ESP_LOGI(BT_GAP_TAG, "GAP callback unregistered");
     }
+
     return ret;
 }
 
@@ -238,6 +251,7 @@ esp_err_t bt_gap_set_device_name(const char *name)
     } else {
         ESP_LOGE(BT_GAP_TAG, "Failed to set device name: %d", ret);
     }
+
     return ret;
 }
 
@@ -264,6 +278,7 @@ const uint8_t *bt_gap_get_local_bd_addr(void)
         bda2str(addr, bda_str, sizeof(bda_str));
         ESP_LOGD(BT_GAP_TAG, "Local BD Address: %s", bda_str);
     }
+
     return addr;
 }
 
@@ -273,6 +288,7 @@ const uint8_t *bt_gap_get_local_bd_addr(void)
 esp_err_t bt_gap_start_discovery(void)
 {
     ESP_LOGI(BT_GAP_TAG, "Starting device discovery...");
+
     /* Start general inquiry for 10 seconds, max 10 results */
     esp_err_t ret = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 10);
     if (ret == ESP_OK) {
@@ -280,6 +296,7 @@ esp_err_t bt_gap_start_discovery(void)
     } else {
         ESP_LOGE(BT_GAP_TAG, "Failed to start device discovery: %d", ret);
     }
+
     return ret;
 }
 
@@ -294,5 +311,54 @@ esp_err_t bt_gap_cancel_discovery(void)
     } else {
         ESP_LOGE(BT_GAP_TAG, "Failed to cancel device discovery: %d", ret);
     }
+
     return ret;
+}
+
+/**
+ * @brief Set the PIN code for Bluetooth pairing
+ */
+esp_err_t bt_gap_set_pin(const char *pin_code, uint8_t pin_len)
+{
+    if (pin_code == NULL) {
+        ESP_LOGE(BT_GAP_TAG, "PIN code cannot be NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    if (pin_len < 4 || pin_len > 16) {
+        ESP_LOGE(BT_GAP_TAG, "PIN length must be 4-16 digits (got %d)", pin_len);
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    // Validate that PIN contains only digits
+    for (uint8_t i = 0; i < pin_len; i++) {
+        if (pin_code[i] < '0' || pin_code[i] > '9') {
+            ESP_LOGE(BT_GAP_TAG, "PIN must contain only digits (0-9)");
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    
+    // Store PIN code
+    memcpy(s_pin_code, pin_code, pin_len);
+    s_pin_len = pin_len;
+    
+    ESP_LOGI(BT_GAP_TAG, "PIN code set (length: %d)", pin_len);
+    return ESP_OK;
+}
+
+/**
+ * @brief Get the current PIN code
+ */
+esp_err_t bt_gap_get_pin(char *pin_code, uint8_t *pin_len)
+{
+    if (pin_code == NULL || pin_len == NULL) {
+        ESP_LOGE(BT_GAP_TAG, "Output buffers cannot be NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    memcpy(pin_code, s_pin_code, s_pin_len);
+    pin_code[s_pin_len] = '\0'; // Null-terminate
+    *pin_len = s_pin_len;
+    
+    return ESP_OK;
 }
