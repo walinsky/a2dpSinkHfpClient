@@ -13,6 +13,7 @@
 #include "esp_gap_bt_api.h"
 #include "a2dpSinkHfpHf.h"
 #include "a2dpSink.h"
+#include "bt_app_avrc.h"
 #include "bt_gap.h"
 #include "bt_app_hf.h"
 #include "bt_i2s.h"
@@ -160,6 +161,8 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
 
     // ===== STEP 5: Initialize A2DP Sink profile =====
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[5/5] Initializing A2DP Sink profile");
+    // Initialize AVRCP before A2DP
+    bt_app_avrc_init();
     a2dp_sink_init();
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, " ✓ A2DP Sink profile initialized");
 
@@ -209,6 +212,7 @@ esp_err_t a2dpSinkHfpHf_deinit(void)
     // Deinitialize A2DP Sink
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Deinitializing A2DP Sink");
     a2dp_sink_deinit();
+    bt_app_avrc_deinit();
 
     // Deinitialize HFP
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Deinitializing HFP");
