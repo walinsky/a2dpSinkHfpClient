@@ -5,42 +5,39 @@
 [![ESP-IDF Version](https://img.shields.io/badge/ESP--IDF-v5.0+-blue.svg)](https://github.com/espressif/esp-idf)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Turn your ESP32 into a fully-featured Bluetooth speaker and hands-free kit with support for music streaming, phone calls, contact sync, and playback control.
+Turn your ESP32 into a complete Bluetooth audio device with music streaming and phone call capabilities.
 
 ## Features
 
-### 🎵 A2DP Sink (Audio Streaming)
-- High-quality music streaming from phones/tablets
-- SBC codec support (16kHz - 48kHz sample rates)
-- Automatic sample rate detection
-- Low-latency audio output via I2S
+### 🎵 Audio Streaming (A2DP)
+- High-quality Bluetooth audio sink
+- Automatic connection handling
+- I2S output to external DAC
 
-### 📞 HFP Hands-Free Client
-- Make and receive phone calls
-- Full-duplex audio (speaker + microphone)
-- mSBC wideband codec for HD voice
-- Call controls (answer, reject, hang up)
-- Voice recognition support
+### 📞 Phone Calls (HFP)
+- **Call Control**: Answer, reject, hang up calls
+- **Dialing**: Direct dial, redial, speed dial
+- **Voice Recognition**: Trigger Siri/Google Assistant
+- **Volume Control**: Adjust speaker and microphone volume
+- **Phone Queries**: Get operator, call list, own number
+- **Advanced Features**: BTRH, XAPL, iPhone battery reporting
 
-### 🎛️ AVRCP Controller
-- Playback control (play, pause, next, previous)
-- Track metadata (title, artist, album, genre)
-- Playback status monitoring
-- Volume synchronization
+### 🎛️ Music Control (AVRC)
+- Play/pause control
+- Track navigation (next/previous)
+- Track metadata (title, artist, album)
+- Playback status notifications
 
-### 📇 Phonebook Access (PBAP)
-- Automatic contact synchronization
-- Persistent storage in SPIFFS
-- Caller ID with contact name lookup
-- E.164 phone number normalization
-- Search contacts by name/number
+### 📇 Contact Sync (PBAP)
+- Automatic phonebook download
+- Contact storage to SPIFFS
+- Country code support for formatting
 
-## Hardware Requirements
+## Supported Hardware
 
-- **ESP32 module** (ESP32, ESP32-S3, or ESP32-C3)
-- **I2S DAC/Amplifier** (e.g., PCM5102, MAX98357A, ES8388)
-- **I2S Microphone** (e.g., INMP441, SPH0645) - optional for calls
-- **Speakers** or headphones
+- **ESP32** (all variants)
+- **ESP32-S3**
+- **ESP32-C3**
 
 ### Example Hardware
 
@@ -56,89 +53,149 @@ Turn your ESP32 into a fully-featured Bluetooth speaker and hands-free kit with 
 
 ### Installation
 
-**From ESP Component Registry:**
+#### Option 1: ESP Component Registry (Recommended)
 ```bash
 idf.py add-dependency "a2dpSinkHfpClient"
 ```
 
-**Manual Installation:**
+#### Option 2: Manual
 ```bash
 cd your_project/components
-git clone https://github.com/yourusername/a2dpSinkHfpClient.git
+git clone https://github.com/walinsky/a2dpSinkHfpClient.git
 ```
 
-### Minimal Example
+### Basic Example
 
 ```c
 #include "a2dpSinkHfpHf.h"
 #include "nvs_flash.h"
 
 void app_main(void) {
-    // Initialize NVS
     nvs_flash_init();
 
-    // Configure pins and device name
     a2dpSinkHfpHf_config_t config = {
         .device_name = "ESP32-Speaker",
-        .i2s_tx_bck = 26,    // I2S BCK (speaker)
-        .i2s_tx_ws = 25,     // I2S WS (speaker)
-        .i2s_tx_dout = 22,   // I2S DOUT (speaker)
-        .i2s_rx_bck = 32,    // I2S BCK (mic)
-        .i2s_rx_ws = 33,     // I2S WS (mic)
-        .i2s_rx_din = 34     // I2S DIN (mic)
+        .i2s_tx_bck = 26,    // Speaker pins
+        .i2s_tx_ws = 25,
+        .i2s_tx_dout = 22,
+        .i2s_rx_bck = 32,    // Microphone pins (for calls)
+        .i2s_rx_ws = 33,
+        .i2s_rx_din = 34
     };
 
-    // Initialize component
     a2dpSinkHfpHf_init(&config);
 }
 ```
 
-That's it! Your ESP32 is now discoverable and ready to pair.
+### HFP Call Control Example
 
-## Examples
+```c
+// Answer incoming call
+a2dpSinkHfpHf_answer_call();
 
-This repository includes two ready-to-use examples:
+// Dial a number
+a2dpSinkHfpHf_dial_number("5551234567");
 
-### 1. Minimal Example (`examples/minimal/`)
+// Start voice assistant
+a2dpSinkHfpHf_start_voice_recognition();
 
-Basic setup with default configuration - perfect for getting started quickly.
-
-**Features:**
-- Simple initialization
-- Default PIN code (1234)
-- Basic A2DP audio streaming
-- HFP call support
-
-**Build & Flash:**
-```bash
-cd examples/minimal
-idf.py build flash monitor
+// Set speaker volume (0-15)
+a2dpSinkHfpHf_volume_update("spk", 12);
 ```
 
-### 2. Full-Featured Example (`examples/avrc/`)
+### Music Control Example
 
-Complete demonstration with all features enabled and custom callbacks.
+```c
+// Play/pause
+a2dpSinkHfpHf_avrc_play();
+a2dpSinkHfpHf_avrc_pause();
 
-**Features:**
-- Custom PIN code configuration
-- AVRC metadata callbacks (display track info)
-- Playback status monitoring
-- Volume change callbacks
-- Country code configuration for phonebook
-- Comprehensive logging
+// Track navigation
+a2dpSinkHfpHf_avrc_next();
+a2dpSinkHfpHf_avrc_prev();
 
-**Build & Flash:**
-```bash
-cd examples/avrc
-idf.py build flash monitor
+// Get metadata
+const bt_avrc_metadata_t *meta = a2dpSinkHfpHf_get_avrc_metadata();
+if (meta && meta->valid) {
+    printf("Now Playing: %s - %s\n", meta->artist, meta->title);
+}
+```
+
+## Hardware Setup
+
+### Speaker Output (Required)
+```
+ESP32 Pin → DAC (e.g., PCM5102)
+GPIO 26   → BCK
+GPIO 25   → LCK (WS)
+GPIO 22   → DIN
+```
+
+### Microphone Input (Optional - for phone calls)
+```
+ESP32 Pin → Microphone (e.g., INMP441)
+GPIO 32   → SCK
+GPIO 33   → WS
+GPIO 34   → SD
+```
+
+## API Overview
+
+### Initialization
+```c
+esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config);
+esp_err_t a2dpSinkHfpHf_deinit(void);
+```
+
+### HFP Call Control
+```c
+esp_err_t a2dpSinkHfpHf_answer_call(void);
+esp_err_t a2dpSinkHfpHf_reject_call(void);
+esp_err_t a2dpSinkHfpHf_hangup_call(void);
+esp_err_t a2dpSinkHfpHf_dial_number(const char *number);
+esp_err_t a2dpSinkHfpHf_redial(void);
+esp_err_t a2dpSinkHfpHf_dial_memory(int location);
+```
+
+### Voice Recognition
+```c
+esp_err_t a2dpSinkHfpHf_start_voice_recognition(void);
+esp_err_t a2dpSinkHfpHf_stop_voice_recognition(void);
+```
+
+### Volume Control
+```c
+esp_err_t a2dpSinkHfpHf_volume_update(const char *target, int volume);
+// target: "spk" or "mic", volume: 0-15
+```
+
+### Phone Queries
+```c
+esp_err_t a2dpSinkHfpHf_query_operator(void);
+esp_err_t a2dpSinkHfpHf_query_current_calls(void);
+esp_err_t a2dpSinkHfpHf_retrieve_subscriber_info(void);
+```
+
+### AVRC Control
+```c
+bool a2dpSinkHfpHf_avrc_play(void);
+bool a2dpSinkHfpHf_avrc_pause(void);
+bool a2dpSinkHfpHf_avrc_next(void);
+bool a2dpSinkHfpHf_avrc_prev(void);
+```
+
+### Status
+```c
+bool a2dpSinkHfpHf_is_connected(void);
+bool a2dpSinkHfpHf_is_avrc_connected(void);
+const bt_avrc_metadata_t* a2dpSinkHfpHf_get_avrc_metadata(void);
 ```
 
 ## Configuration
 
-### Required menuconfig Settings
+### ESP-IDF menuconfig
 
-Run `idf.py menuconfig` and enable:
-
+Enable required Bluetooth features:
 ```
 Component config → Bluetooth → Bluedroid Options
     [*] A2DP
@@ -152,23 +209,14 @@ Component config → Bluetooth → Bluedroid Options
 ### Custom PIN Code
 
 ```c
-// Set before initialization
-a2dpSinkHfpHf_set_pin("5678", 4);
+// Set PIN before initialization
+a2dpSinkHfpHf_set_pin("1234", 4);
 a2dpSinkHfpHf_init(&config);
 ```
 
-### Country Code (for Phonebook)
+### Phonebook Sync
 
-```c
-// Set for proper phone number formatting
-a2dpSinkHfpHf_set_country_code("1");   // USA
-a2dpSinkHfpHf_set_country_code("31");  // Netherlands
-a2dpSinkHfpHf_set_country_code("44");  // UK
-```
-
-### SPIFFS Partition (for Phonebook Storage)
-
-Add to your `partitions.csv`:
+1. Add SPIFFS partition to `partitions.csv`:
 ```csv
 # Name,   Type, SubType, Offset,  Size
 nvs,      data, nvs,     0x9000,  0x6000
@@ -177,199 +225,72 @@ factory,  app,  factory, 0x10000, 1536K
 storage,  data, spiffs,  ,        1M
 ```
 
-## API Reference
-
-### Initialization
-
+2. Set country code:
 ```c
-esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config);
-esp_err_t a2dpSinkHfpHf_deinit(void);
+a2dpSinkHfpHf_set_country_code("1");  // USA
 ```
 
-### Configuration
+## Examples
 
-```c
-esp_err_t a2dpSinkHfpHf_set_pin(const char *pin_code, uint8_t pin_len);
-esp_err_t a2dpSinkHfpHf_set_country_code(const char *country_code);
-```
+See the `examples/` directory for complete examples:
+- **minimal** - just a minimal setup; that plays audio and lets you make phone calls
+- **hfp** - Interactive command-line interface for testing all HFP and avrc features
+- **avrc** - AVRC control with metadata display
 
-### AVRC Control
-
-```c
-bool a2dpSinkHfpHf_avrc_play(void);
-bool a2dpSinkHfpHf_avrc_pause(void);
-bool a2dpSinkHfpHf_avrc_next(void);
-bool a2dpSinkHfpHf_avrc_prev(void);
-```
-
-### Callbacks
-
-```c
-void a2dpSinkHfpHf_register_avrc_metadata_callback(bt_avrc_metadata_cb_t callback);
-void a2dpSinkHfpHf_register_avrc_playback_callback(bt_avrc_playback_status_cb_t callback);
-void a2dpSinkHfpHf_register_avrc_volume_callback(bt_avrc_volume_cb_t callback);
-```
-
-### Status
-
-```c
-bool a2dpSinkHfpHf_is_connected(void);
-bool a2dpSinkHfpHf_is_avrc_connected(void);
-const bt_avrc_metadata_t* a2dpSinkHfpHf_get_avrc_metadata(void);
-```
-
-## Advanced Usage
-
-### Display Track Metadata
-
-```c
-void metadata_callback(const bt_avrc_metadata_t *metadata) {
-    if (metadata && metadata->valid) {
-        printf("Now Playing: %s - %s\n", metadata->artist, metadata->title);
-        printf("Album: %s\n", metadata->album);
-    }
-}
-
-a2dpSinkHfpHf_register_avrc_metadata_callback(metadata_callback);
-```
-
-### Monitor Playback Status
-
-```c
-void playback_callback(const bt_avrc_playback_status_t *status) {
-    switch (status->status) {
-        case ESP_AVRC_PLAYBACK_PLAYING:
-            printf("Playing\n");
-            break;
-        case ESP_AVRC_PLAYBACK_PAUSED:
-            printf("Paused\n");
-            break;
-    }
-}
-
-a2dpSinkHfpHf_register_avrc_playback_callback(playback_callback);
-```
-
-### Caller ID
-
-Caller ID is handled automatically when phonebook is synced. The component will:
-1. Download contacts when phone connects
-2. Store in SPIFFS persistently
-3. Display contact name for incoming calls
+After you have downloaded the component, `cd` into the component/examples/[your choice]
+folder, (optionally edit the COMPILE-TIME CONFIGURATION in `main/main.c`) and just `idf.py build flash monitor`.
 
 ## Documentation
 
-Comprehensive documentation is available in the [Wiki](../../wiki):
+Complete documentation available in the Wiki:
+- [Getting Started](https://github.com/walinsky/a2dpSinkHfpClient/wiki/Getting-Started)
+- [API Reference](https://github.com/walinsky/a2dpSinkHfpClient/wiki/API-Reference)
+- [HFP Control Guide](https://github.com/walinsky/a2dpSinkHfpClient/wiki/HFP-Control)
+- [Examples](https://github.com/walinsky/a2dpSinkHfpClient/wiki/Examples)
+- [Configuration](https://github.com/walinsky/a2dpSinkHfpClient/wiki/Configuration)
+- [Troubleshooting](https://github.com/walinsky/a2dpSinkHfpClient/wiki/Troubleshooting)
 
-- [Getting Started](../../wiki/Getting-Started) - Installation and setup guide
-- [API Reference](../../wiki/API-Reference) - Complete API documentation
-- [AVRC Control](../../wiki/AVRC-Control) - Music control and metadata
-- [Phonebook](../../wiki/Phonebook) - Contact sync and caller ID
-- [Configuration](../../wiki/Configuration) - Advanced configuration options
-- [Examples](../../wiki/Examples) - More code examples
-- [Troubleshooting](../../wiki/Troubleshooting) - Common issues and solutions
+## Requirements
+
+- **ESP-IDF**: v5.0 or later (v5.5.1 recommended)
+- **External DAC**: PCM5102, MAX98357A, or similar I2S DAC
+- **Microphone**: INMP441 or similar I2S microphone (optional, for calls)
 
 ## Pin Configuration
 
-Configure I2S pins in your `main.c`:
+You can use any available GPIO pins. The examples use:
 
-```c
-a2dpSinkHfpHf_config_t config = {
-    .device_name = "ESP32-Audio",
-    // Speaker output (DAC/Amplifier)
-    .i2s_tx_bck = GPIO_NUM_26,   // Bit clock
-    .i2s_tx_ws = GPIO_NUM_25,    // Word select
-    .i2s_tx_dout = GPIO_NUM_22,  // Data out
-    // Microphone input (for calls)
-    .i2s_rx_bck = GPIO_NUM_32,   // Bit clock
-    .i2s_rx_ws = GPIO_NUM_33,    // Word select
-    .i2s_rx_din = GPIO_NUM_34    // Data in
-};
-```
+| Function    | Default Pin | Configurable |
+|-------------|-------------|--------------|
+| Speaker BCK | GPIO 26     | ✓            |
+| Speaker WS  | GPIO 25     | ✓            |
+| Speaker DOUT| GPIO 22     | ✓            |
+| Mic BCK     | GPIO 32     | ✓            |
+| Mic WS      | GPIO 33     | ✓            |
+| Mic DIN     | GPIO 34     | ✓            |
 
-**Note:** For music-only applications (no calls), set RX pins to `-1`:
-```c
-.i2s_rx_bck = -1,
-.i2s_rx_ws = -1,
-.i2s_rx_din = -1
-```
+## License
 
-## Supported ESP-IDF Versions
-
-- ESP-IDF v5.0 and newer
-- Tested on ESP-IDF v5.1, v5.2, v5.3
-
-## Supported Hardware
-
-- **ESP32** (all variants)
-- **ESP32-S3**
-- **ESP32-C3**
-
-## Troubleshooting
-
-### No Audio Output
-- Verify I2S pin connections
-- Check DAC power supply
-- Enable debug logs: `esp_log_level_set("BT_I2S", ESP_LOG_DEBUG)`
-
-### Cannot Pair
-- Verify PIN code is set before `a2dpSinkHfpHf_init()`
-- Clear paired devices: `nvs_flash_erase()` and restart
-- Check Bluetooth is enabled in menuconfig
-
-### Contacts Not Syncing
-- Add SPIFFS partition to `partitions.csv`
-- Grant contact sharing permission on phone
-- Set correct country code: `a2dpSinkHfpHf_set_country_code("1")`
-
-For more troubleshooting help, see the [Troubleshooting Guide](../../wiki/Troubleshooting).
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
 Contributions are welcome! Please:
 1. Fork the repository
 2. Create a feature branch
-3. Submit a pull request
+3. Make your changes
+4. Submit a pull request
 
-## License
+## Author
 
-Copyright (c) 2025 walinsky
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+walinsky
 
 ## Acknowledgments
 
-- Based on [ESP-IDF Bluetooth examples](https://github.com/espressif/esp-idf/tree/master/examples/bluetooth)
-- Built with [ESP-IDF](https://github.com/espressif/esp-idf)
-- Inspired by the ESP32 community
+Based on ESP-IDF Bluetooth examples and inspired by the ESP32 community.
 
 ## Support
 
-- **Issues:** [GitHub Issues](../../issues)
-- **Discussions:** [GitHub Discussions](../../discussions)
-- **ESP32 Forum:** [esp32.com](https://esp32.com/)
-
-## Related Projects
-
-- [ESP-IDF](https://github.com/espressif/esp-idf) - Official ESP32 development framework
-- [ESP-ADF](https://github.com/espressif/esp-adf) - Audio development framework
-
----
-
-**Made with ❤️ for the ESP32 community**
+- Report issues: [GitHub Issues](https://github.com/walinsky/a2dpSinkHfpClient/issues)
+- Discussions: [GitHub Discussions](https://github.com/walinsky/a2dpSinkHfpClient/discussions)
+- Wiki: [Documentation](https://github.com/walinsky/a2dpSinkHfpClient/wiki)
