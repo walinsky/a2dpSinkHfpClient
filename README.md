@@ -1,68 +1,51 @@
-A2DP-SINK & HFP CLIENT
-======================
+# A2DP-SINK & HFP CLIENT
+## phonebook and avrc support
+===========================================================================
 
-This is a working version of API implementing both Advanced Audio Distribution Profile and HFP Client.
-
-This involves the use of Bluetooth legacy profile A2DP for audio stream reception, AVRCP for media information notifications, HFP client for making/answering phone calls and I2S for audio stream input/output interface.
-Or in normal words: you turn your esp32 in both a carkit and a bluetooth speaker.
+## Turn your ESP32 into a bluetooth speaker and handsfree kit!
 
 ## How to use
 
 ### Hardware Required
 
 Besides a ESP32 you'll need a I2S DAC (I used a PCM5102) and a mems microphone (I used a INMP441)
-
-GPIO pins for our i2s DAC are set in main.c, and can be changed to whatever you like
-```
-bt_i2s_set_tx_I2S_pins(GPIO_NUM_26, GPIO_NUM_17, GPIO_NUM_25, GPIO_NUM_NC);
-```
-Same goes for our i2s mems microphone pins
-```
-bt_i2s_set_rx_I2S_pins(GPIO_NUM_16, GPIO_NUM_27, GPIO_NUM_NC, GPIO_NUM_14);
-```
-![ESP32](./img/esp32.png "ESP32 with mic and dac")
+![mic](./img/INMP441-MEMS.jpg "INMP441 MEMS microphone")
+![DAC](./img/dac.jpg "PCM5102 DAC")
+![ESP32](./img/esp32.jpg "ESP32 with mic and dac")
 
 ### Build and Flash
 
-Assuming you're using ESP-IDF5.1 you should be able to build and flash straight away. `sdkconfig.defaults` enables bluedroid, hfp, adp and other necessities.
+After connecting your microphone and dac, set the pins accordingly in your main.c
+In the examples folder you'll find projects that you can build straightaway.
+For example:
+```
+cd examples/minimal
+idf.py build
 
-# A2DP Sink + HFP Component
+```
+When creating your own project using this component, just make sure you (only) include `a2dpSinkHfpHf.h`.
+Don't forget to set your config values before calling `a2dpSinkHfpHf_init`.
 
-This component automatically configures your project with the required settings.
-
-## What Gets Configured Automatically
+### What Gets Configured Automatically
 
 On first build, the following files are copied from this component to your project root:
 
 - `sdkconfig.defaults` - Bluetooth and system configuration defaults
 - `partitions.csv` - Flash partition table for 4MB ESP32
 
-## User Notes
-
-- **Don't manually edit** the copied files if you want to preserve component compatibility
-- To customize: edit files in `components/a2dpSinkHfpClient/` instead
-- Run `idf.py fullclean` if you need to regenerate from component defaults
-
-## First Build
-
-Simply run:
-
-```idf.py build```
-
-
-The component will automatically set up all required configuration.
-
+However; for some reason sdkconfig.defaults is not picked up on first try.
+Resulting in compiler errors missing header files.
+Simply delete sdkconfig from your project root and build again.
 
 ## Usage
-
 After the program is started, smart phones can discover and connect to a device named "ESP_SPEAKER".
 You should be able to stream music from your phone now; and make/recieve phone calls.
+If/when you allow to sync your phonebook, it will be stored locally on the ESP32.
 
 ## Notes
 * A2DP is default 44.1kHz 16-bit stereo
 * HFP client (only) supports msbc codec (highest quality)
-* BT pin code and I2S GPIO pins are set in main.c
-* codebase is quite messy right now; I'll be focussing on cleaning up - and converting to a ESP-IDF component
+* ESP IDF version >= 5.5.0 (!). IDF moves sbc coding to an external codec. I haven't tested if this component works on previous IDF versions.
 
 ## Issues
 I'm not your helpdesk.
@@ -72,16 +55,7 @@ Everything is here: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/
 More than welcome.
 
 ## todo
-* move codec from i2s to hfp
-* pull codec init out of funtions. init every 7.5 us is too expensive
-* fix i2s write semaphore(s)
-* start / stop hfp as a (none blocking) task
-* move to component
-* fix water levels for all ringbuffers
-* fix a2dp bitrange changes
-* fix a2dp ringbuffer size when bit range changes
-* add noise suppression?
-* delete and replace bt_hfp.c
-* ~~add mic data to bt_hfp.c~~
-* 
+* add volume control to a2dp and hfp
+* expose hfp controls from a2dpSinkHfpHf
+* expose phonebook controls from a2dpSinkHfpHf
 
