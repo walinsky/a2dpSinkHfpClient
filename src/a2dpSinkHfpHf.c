@@ -378,3 +378,153 @@ bool a2dpSinkHfpHf_avrc_prev(void)
 {
     return bt_app_avrc_cmd_prev();
 }
+
+// ============================================================================
+// HFP HANDS-FREE CONTROL FUNCTIONS
+// ============================================================================
+
+// ============================================================================
+// Call Control Functions
+// ============================================================================
+
+esp_err_t a2dpSinkHfpHf_answer_call(void) {
+    return esp_hf_client_answer_call();
+}
+
+esp_err_t a2dpSinkHfpHf_reject_call(void) {
+    return esp_hf_client_reject_call();
+}
+
+esp_err_t a2dpSinkHfpHf_hangup_call(void) {
+    return esp_hf_client_reject_call();  // Same as reject
+}
+
+esp_err_t a2dpSinkHfpHf_dial_number(const char *number) {
+    if (number == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return esp_hf_client_dial(number);
+}
+
+esp_err_t a2dpSinkHfpHf_redial(void) {
+    return esp_hf_client_dial(NULL);  // NULL triggers redial
+}
+
+esp_err_t a2dpSinkHfpHf_dial_memory(int location) {
+    return esp_hf_client_dial_memory(location);
+}
+
+// ============================================================================
+// Voice Recognition
+// ============================================================================
+
+esp_err_t a2dpSinkHfpHf_start_voice_recognition(void) {
+    return esp_hf_client_start_voice_recognition();
+}
+
+esp_err_t a2dpSinkHfpHf_stop_voice_recognition(void) {
+    return esp_hf_client_stop_voice_recognition();
+}
+
+// ============================================================================
+// Volume Control
+// ============================================================================
+
+esp_err_t a2dpSinkHfpHf_volume_update(const char *target, int volume) {
+    if (target == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (volume < 0 || volume > 15) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_hf_volume_control_target_t vol_target;
+    if (strcmp(target, "spk") == 0) {
+        vol_target = ESP_HF_VOLUME_CONTROL_TARGET_SPK;
+    } else if (strcmp(target, "mic") == 0) {
+        vol_target = ESP_HF_VOLUME_CONTROL_TARGET_MIC;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return esp_hf_client_volume_update(vol_target, volume);
+}
+
+// ============================================================================
+// Query Functions
+// ============================================================================
+
+esp_err_t a2dpSinkHfpHf_query_operator(void) {
+    return esp_hf_client_query_current_operator_name();
+}
+
+esp_err_t a2dpSinkHfpHf_query_current_calls(void) {
+    return esp_hf_client_query_current_calls();
+}
+
+esp_err_t a2dpSinkHfpHf_retrieve_subscriber_info(void) {
+    return esp_hf_client_retrieve_subscriber_info();
+}
+
+// ============================================================================
+// Advanced Features
+// ============================================================================
+
+esp_err_t a2dpSinkHfpHf_send_btrh(int btrh) {
+    if (btrh < 0 || btrh > 2) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return esp_hf_client_send_btrh_cmd((esp_hf_btrh_cmd_t)btrh);
+}
+
+esp_err_t a2dpSinkHfpHf_send_xapl(const char *features) {
+    if (features == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Parse features string format: "ProductName-Version,Features"
+    // e.g., "iPhone-6.3.0,2"
+    // For now, we'll assume caller provides proper format
+
+    // The API signature is: esp_err_t esp_hf_client_send_xapl(char *information, uint32_t features)
+    // We need to split the features string
+
+    char info_copy[64];
+    strncpy(info_copy, features, sizeof(info_copy) - 1);
+    info_copy[sizeof(info_copy) - 1] = '\0';
+
+    // Find comma separator
+    char *comma = strchr(info_copy, ',');
+    if (comma == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *comma = '\0';  // Split string
+    char *info_part = info_copy;
+    uint32_t features_part = (uint32_t)atoi(comma + 1);
+
+    return esp_hf_client_send_xapl(info_part, features_part);
+}
+
+esp_err_t a2dpSinkHfpHf_send_iphoneaccev(int bat_level, int docked) {
+    // Validate parameters
+    if (bat_level < -1 || bat_level > 9) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (docked < -1 || docked > 1) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // At least one parameter must be valid
+    if (bat_level < 0 && docked < 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // API signature: esp_err_t esp_hf_client_send_iphoneaccev(uint32_t bat_level, bool docked)
+    // If bat_level is -1, send 0 (it won't be used if we only send docked state)
+    uint32_t battery = (bat_level >= 0) ? (uint32_t)bat_level : 0;
+    bool is_docked = (docked > 0);
+
+    return esp_hf_client_send_iphoneaccev(battery, is_docked);
+}
