@@ -185,6 +185,127 @@ bool a2dpSinkHfpHf_avrc_next(void);
  */
 bool a2dpSinkHfpHf_avrc_prev(void);
 
+
+// ============================================================================
+// HFP HANDS-FREE CONTROL FUNCTIONS
+// ============================================================================
+
+/**
+ * @brief Answer incoming call
+ * 
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_answer_call(void);
+
+/**
+ * @brief Reject incoming call
+ * 
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_reject_call(void);
+
+/**
+ * @brief Hang up active call
+ * 
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_hangup_call(void);
+
+/**
+ * @brief Dial a phone number
+ * 
+ * @param number Phone number string (e.g., "1234567890")
+ * @return esp_err_t ESP_OK on success, ESP_ERR_INVALID_ARG if number is NULL
+ */
+esp_err_t a2dpSinkHfpHf_dial_number(const char *number);
+
+/**
+ * @brief Redial last dialed number
+ * 
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_redial(void);
+
+/**
+ * @brief Dial from memory location (speed dial)
+ * 
+ * @param location Memory location number (implementation depends on phone)
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_dial_memory(int location);
+
+/**
+ * @brief Start voice recognition (Siri, Google Assistant, etc.)
+ * 
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_start_voice_recognition(void);
+
+/**
+ * @brief Stop voice recognition
+ * 
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_stop_voice_recognition(void);
+
+/**
+ * @brief Update volume on phone
+ * 
+ * @param target Volume target: "spk" for speaker, "mic" for microphone
+ * @param volume Volume level (0-15)
+ * @return esp_err_t ESP_OK on success, ESP_ERR_INVALID_ARG if parameters invalid
+ */
+esp_err_t a2dpSinkHfpHf_volume_update(const char *target, int volume);
+
+/**
+ * @brief Query current network operator
+ * 
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_query_operator(void);
+
+/**
+ * @brief Query list of current calls
+ * 
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_query_current_calls(void);
+
+/**
+ * @brief Retrieve subscriber number (own phone number)
+ * 
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_retrieve_subscriber_info(void);
+
+/**
+ * @brief Send response and hold command
+ * 
+ * @param btrh Response/Hold value:
+ *             0 = Put call on hold
+ *             1 = Accept held call
+ *             2 = Reject held call
+ * @return esp_err_t ESP_OK on success, ESP_ERR_INVALID_ARG if value out of range
+ */
+esp_err_t a2dpSinkHfpHf_send_btrh(int btrh);
+
+/**
+ * @brief Send iPhone XAPL (accessory protocol) command
+ * 
+ * @param features Feature string (e.g., "iPhone-6.3.0,2")
+ * @return esp_err_t ESP_OK on success, ESP_ERR_INVALID_ARG if features is NULL
+ */
+esp_err_t a2dpSinkHfpHf_send_xapl(const char *features);
+
+/**
+ * @brief Send iPhone accessory event (battery level, docked state)
+ * 
+ * @param bat_level Battery level (0-9, or -1 to not send)
+ * @param docked Docked state (0=not docked, 1=docked, -1 to not send)
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_send_iphoneaccev(int bat_level, int docked);
+
 #ifdef __cplusplus
 }
 #endif
