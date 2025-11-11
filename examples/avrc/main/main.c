@@ -27,6 +27,9 @@
 // Bluetooth Device Name
 #define BT_DEVICE_NAME      "ESP32-boo"
 
+// country code for phonebook
+#define COUNTRY_CODE        "31" // Netherlands
+
 // ============================================================================
 // AVRC CALLBACK EXAMPLES (Optional)
 // ============================================================================
@@ -125,6 +128,14 @@ void app_main(void)
         return;
     }
 
+    ret = a2dpSinkHfpHf_set_country_code(COUNTRY_CODE);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "✓ country code set to: %s", COUNTRY_CODE);
+        ESP_LOGW(TAG, "this is used when parsing the phonebook from your phone!");
+    } else {
+        ESP_LOGE(TAG, "Failed to set country code: %s", esp_err_to_name(ret));
+        return;
+    }
     // ===== STEP 3: Register AVRC Callbacks (Optional) =====
     ESP_LOGI(TAG, "Registering AVRC callbacks...");
     a2dpSinkHfpHf_register_avrc_conn_callback(avrc_conn_callback);

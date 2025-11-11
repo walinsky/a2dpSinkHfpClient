@@ -1,1 +1,6 @@
 build
+sdkconfig
+sdkconfig.old
+partitions.csv
+managed_components
+.vscode
