@@ -55,7 +55,7 @@ Turn your ESP32 into a complete Bluetooth audio device with music streaming and 
 
 #### Option 1: ESP Component Registry (Recommended)
 ```bash
-idf.py add-dependency "a2dpSinkHfpClient"
+idf.py add-dependency "walinsky/a2dpsinkhfpclient^0.1.0"
 ```
 
 #### Option 2: Manual
