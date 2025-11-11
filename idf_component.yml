@@ -1,8 +1,8 @@
 ## IDF Component Manager Manifest File
 name: walinsky/a2dpSinkHfpClient
-version: 0.0.8
-
-description: a2dp Sink Hfp client
+version: "0.0.8"
+license: "MIT"
+description: "a2dp Sink Hfp client with avrc and phonebook support"
 
 targets:
   - esp32
@@ -12,4 +12,5 @@ dependencies:
   idf: ">=5.5.0"
   espressif/esp_audio_codec: ^2.3.0
 
+url: https://github.com/walinsky/a2dpSinkHfpClient.git
 repository: https://github.com/walinsky/a2dpSinkHfpClient.git
