@@ -27,6 +27,9 @@
 // Bluetooth Device Name
 #define BT_DEVICE_NAME      "ESP32-audio"
 
+// country code for phonebook
+#define COUNTRY_CODE        "31" // Netherlands
+
 // I2S PINS
 #define I2S_TX_BCK  26
 #define I2S_TX_WS   17
@@ -51,9 +54,11 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-
-    ret = a2dpSinkHfpHf_set_pin(BT_PIN_CODE, BT_PIN_LENGTH);
-
+    // set our bt pincode for pairing
+    a2dpSinkHfpHf_set_pin(BT_PIN_CODE, BT_PIN_LENGTH);
+    // set our country code (used by phonebook for parsing phone numbers)
+    a2dpSinkHfpHf_set_country_code(COUNTRY_CODE);
+    // set i2s pins (tx: dac, rx: microphone)
     a2dpSinkHfpHf_config_t config = {
         .device_name = BT_DEVICE_NAME,
         .i2s_tx_bck = I2S_TX_BCK,
