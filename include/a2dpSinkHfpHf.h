@@ -5,6 +5,7 @@
 #include "esp_bt_defs.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include "bt_gap.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,6 +51,25 @@ struct a2dpSinkHfpHf_contact_t {
 esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config);
 esp_err_t a2dpSinkHfpHf_deinit(void);
 esp_err_t a2dpSinkHfpHf_config(const a2dpSinkHfpHf_config_t *config);
+
+// ============================================================================
+// GAP API
+// ============================================================================
+
+/**
+ * @brief Register a callback for GAP events
+ * This allows applications to subscribe to Bluetooth connection/disconnection events
+ * @param callback Callback function
+ * @return ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_register_gap_callback(bt_gap_event_cb_t callback);
+
+/**
+ * @brief Unregister a GAP event callback
+ * @param callback Callback function to unregister
+ * @return ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_unregister_gap_callback(bt_gap_event_cb_t callback);
 
 // ============================================================================
 // PHONEBOOK API

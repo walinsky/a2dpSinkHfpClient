@@ -284,6 +284,30 @@ esp_err_t a2dpSinkHfpHf_deinit(void)
 }
 
 // ============================================================================
+// GAP API
+// ============================================================================
+
+esp_err_t a2dpSinkHfpHf_register_gap_callback(bt_gap_event_cb_t callback)
+{
+    if (!s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    return bt_gap_register_event_callback(callback);
+}
+
+esp_err_t a2dpSinkHfpHf_unregister_gap_callback(bt_gap_event_cb_t callback)
+{
+    if (!s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    return bt_gap_unregister_event_callback(callback);
+}
+
+// ============================================================================
 // PHONEBOOK API WRAPPERS
 // ============================================================================
 
