@@ -36,8 +36,6 @@ Turn your ESP32 into a complete Bluetooth audio device with music streaming and 
 ## Supported Hardware
 
 - **ESP32** (all variants)
-- **ESP32-S3**
-- **ESP32-C3**
 
 ### Example Hardware
 
