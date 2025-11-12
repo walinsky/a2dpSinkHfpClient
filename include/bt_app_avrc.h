@@ -65,6 +65,15 @@ typedef enum {
 } bt_avrc_conn_state_t;
 
 /**
+ * @brief Set custom AVRC metadata attribute mask (optional)
+ * This overrides the Kconfig default. Must be called before bt_app_avrc_init()
+ * 
+ * @param attr_mask Bitmask of ESP_AVRC_MD_ATTR_* values
+ * @return true on success, false if already initialized
+ */
+bool bt_app_avrc_set_metadata_mask(uint8_t attr_mask);
+
+/**
  * @brief Initialize AVRCP controller and target
  * 
  * Must be called after esp_bluedroid_enable() and before A2DP initialization

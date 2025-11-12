@@ -9,6 +9,7 @@
 
 #include "bt_app_avrc.h"
 #include "esp_log.h"
+#include "sdkconfig.h"
 #include "esp_avrc_api.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -16,6 +17,7 @@
 #include <string.h>
 
 static const char *BT_AVRC_TAG = "BT_AVRC";
+static uint8_t s_metadata_attr_mask = 0;
 
 #define AVRC_EVENT_QUEUE_SIZE 10
 #define AVRC_TASK_STACK_SIZE  (3 * 1024)
@@ -233,10 +235,7 @@ static void bt_avrc_ct_callback(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_par
         switch (param->change_ntf.event_id) {
         case ESP_AVRC_RN_TRACK_CHANGE:
             ESP_LOGI(BT_AVRC_TAG, "Track changed");
-            esp_avrc_ct_send_metadata_cmd(bt_avrc_next_tl(), 
-                                         ESP_AVRC_MD_ATTR_TITLE |
-                                         ESP_AVRC_MD_ATTR_ARTIST |
-                                         ESP_AVRC_MD_ATTR_ALBUM);
+            esp_avrc_ct_send_metadata_cmd(bt_avrc_next_tl(), s_metadata_attr_mask);
             esp_avrc_ct_send_register_notification_cmd(bt_avrc_next_tl(), ESP_AVRC_RN_TRACK_CHANGE, 0);
             break;
             
@@ -264,10 +263,7 @@ static void bt_avrc_ct_callback(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_par
         esp_avrc_ct_send_register_notification_cmd(bt_avrc_next_tl(), ESP_AVRC_RN_TRACK_CHANGE, 0);
         esp_avrc_ct_send_register_notification_cmd(bt_avrc_next_tl(), ESP_AVRC_RN_PLAY_STATUS_CHANGE, 0);
         esp_avrc_ct_send_register_notification_cmd(bt_avrc_next_tl(), ESP_AVRC_RN_VOLUME_CHANGE, 0);
-        esp_avrc_ct_send_metadata_cmd(bt_avrc_next_tl(), 
-                                     ESP_AVRC_MD_ATTR_TITLE |
-                                     ESP_AVRC_MD_ATTR_ARTIST |
-                                     ESP_AVRC_MD_ATTR_ALBUM);
+        esp_avrc_ct_send_metadata_cmd(bt_avrc_next_tl(), s_metadata_attr_mask);
         break;
     }
     
@@ -308,14 +304,84 @@ static void bt_avrc_tg_callback(esp_avrc_tg_cb_event_t event, esp_avrc_tg_cb_par
     }
 }
 
+/**
+ * @brief Build AVRC metadata attribute mask from Kconfig settings
+ * @return uint8_t attribute mask for esp_avrc_ct_send_metadata_cmd
+ */
+static uint8_t bt_app_avrc_get_metadata_mask(void)
+{
+    uint8_t mask = 0;
+
+    #ifdef CONFIG_A2DPSINK_HFPHF_AVRC_METADATA_TITLE
+        mask |= ESP_AVRC_MD_ATTR_TITLE;
+    #endif
+
+    #ifdef CONFIG_A2DPSINK_HFPHF_AVRC_METADATA_ARTIST
+        mask |= ESP_AVRC_MD_ATTR_ARTIST;
+    #endif
+
+    #ifdef CONFIG_A2DPSINK_HFPHF_AVRC_METADATA_ALBUM
+        mask |= ESP_AVRC_MD_ATTR_ALBUM;
+    #endif
+
+    #ifdef CONFIG_A2DPSINK_HFPHF_AVRC_METADATA_TRACK_NUM
+        mask |= ESP_AVRC_MD_ATTR_TRACK_NUM;
+    #endif
+
+    #ifdef CONFIG_A2DPSINK_HFPHF_AVRC_METADATA_NUM_TRACKS
+        mask |= ESP_AVRC_MD_ATTR_NUM_TRACKS;
+    #endif
+
+    #ifdef CONFIG_A2DPSINK_HFPHF_AVRC_METADATA_GENRE
+        mask |= ESP_AVRC_MD_ATTR_GENRE;
+    #endif
+
+    #ifdef CONFIG_A2DPSINK_HFPHF_AVRC_METADATA_PLAYING_TIME
+        mask |= ESP_AVRC_MD_ATTR_PLAYING_TIME;
+    #endif
+
+    // Ensure at least one attribute is requested
+    if (mask == 0) {
+        ESP_LOGW(BT_AVRC_TAG, "No metadata attributes configured, defaulting to TITLE");
+        mask = ESP_AVRC_MD_ATTR_TITLE;
+    }
+
+    return mask;
+}
+
 /* ============================================
  * Public API
  * ============================================ */
+
+ bool bt_app_avrc_set_metadata_mask(uint8_t attr_mask)
+{
+    if (s_avrc_state.event_queue != NULL) {
+        ESP_LOGE(BT_AVRC_TAG, "Cannot change metadata mask after initialization");
+        return false;
+    }
+
+    if (attr_mask == 0) {
+        ESP_LOGE(BT_AVRC_TAG, "Invalid metadata mask (cannot be 0)");
+        return false;
+    }
+
+    s_metadata_attr_mask = attr_mask;
+    ESP_LOGI(BT_AVRC_TAG, "Custom metadata mask set: 0x%02X", attr_mask);
+    return true;
+}
 
 bool bt_app_avrc_init(void)
 {
     ESP_LOGI(BT_AVRC_TAG, "Initializing AVRCP with queue-based architecture");
     
+    // Build metadata attribute mask from Kconfig (if not already set via API)
+    if (s_metadata_attr_mask == 0) {
+        s_metadata_attr_mask = bt_app_avrc_get_metadata_mask();
+        ESP_LOGI(BT_AVRC_TAG, "Using Kconfig metadata mask: 0x%02X", s_metadata_attr_mask);
+    } else {
+        ESP_LOGI(BT_AVRC_TAG, "Using custom metadata mask: 0x%02X", s_metadata_attr_mask);
+    }
+
     // Create event queue
     s_avrc_state.event_queue = xQueueCreate(AVRC_EVENT_QUEUE_SIZE, sizeof(avrc_event_t));
     if (!s_avrc_state.event_queue) {

@@ -22,17 +22,39 @@
 // ============================================================================
 // CONFIG
 // ============================================================================
+// just do your config in menuconfig!!!
 
-#define BT_DEVICE_NAME "ESP32-HFP-Demo"
-#define COUNTRY_CODE "1"
+// or
+// if you insist
 
-// I2S PINS
-#define I2S_TX_BCK  26
-#define I2S_TX_WS   17
-#define I2S_TX_DOUT 25
-#define I2S_RX_BCK  16
-#define I2S_RX_WS   27
-#define I2S_RX_DIN  14
+// here:
+// #define BT_DEVICE_NAME "ESP32-HFP-Demo"
+// #define COUNTRY_CODE "1"
+
+// // I2S PINS
+// #define I2S_TX_BCK  26
+// #define I2S_TX_WS   17
+// #define I2S_TX_DOUT 25
+// #define I2S_RX_BCK  16
+// #define I2S_RX_WS   27
+// #define I2S_RX_DIN  14
+
+// and in app main:
+// // Configure Bluetooth
+// a2dpSinkHfpHf_config_t config = {
+//     .device_name = BT_DEVICE_NAME,
+//     .i2s_tx_bck = I2S_TX_BCK,
+//     .i2s_tx_ws = I2S_TX_WS,
+//     .i2s_tx_dout = I2S_TX_DOUT,
+//     .i2s_rx_bck = I2S_RX_BCK,
+//     .i2s_rx_ws = I2S_RX_WS,
+//     .i2s_rx_din = I2S_RX_DIN
+// };
+// and call:
+// ESP_ERROR_CHECK(a2dpSinkHfpHf_init(&config));
+// instead of:
+// ESP_ERROR_CHECK(a2dpSinkHfpHf_init(NULL));
+
 
 // ============================================================================
 // AVRC CALLBACKS
@@ -402,26 +424,12 @@ void app_main(void) {
 
     ESP_LOGI(TAG, "ESP32 HFP Hands-Free Demo");
 
-    // Set country code
-    a2dpSinkHfpHf_set_country_code(COUNTRY_CODE);
-
-    // Configure Bluetooth
-    a2dpSinkHfpHf_config_t config = {
-        .device_name = BT_DEVICE_NAME,
-        .i2s_tx_bck = I2S_TX_BCK,
-        .i2s_tx_ws = I2S_TX_WS,
-        .i2s_tx_dout = I2S_TX_DOUT,
-        .i2s_rx_bck = I2S_RX_BCK,
-        .i2s_rx_ws = I2S_RX_WS,
-        .i2s_rx_din = I2S_RX_DIN
-    };
-
     // Register callbacks
     a2dpSinkHfpHf_register_avrc_metadata_callback(metadata_callback);
     a2dpSinkHfpHf_register_avrc_playback_callback(playback_callback);
 
     // Initialize Bluetooth
-    ESP_ERROR_CHECK(a2dpSinkHfpHf_init(&config));
+    ESP_ERROR_CHECK(a2dpSinkHfpHf_init(NULL));
 
     ESP_LOGI(TAG, "Bluetooth initialized. Type 'help' for commands.");
 
