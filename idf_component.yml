@@ -1,6 +1,6 @@
 ## IDF Component Manager Manifest File
 name: walinsky/a2dpSinkHfpClient
-version: "0.1.2"
+version: "0.2.0"
 license: "MIT"
 description: "a2dp Sink Hfp client with avrc and phonebook support"
 
