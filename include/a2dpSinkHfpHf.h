@@ -1,313 +1,198 @@
-/*
- * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Unlicense OR CC0-1.0
- */
+#ifndef __A2DPSINK_HFPHF_H__
+#define __A2DPSINK_HFPHF_H__
 
-#ifndef __A2DP_SINK_HFP_HF_H__
-#define __A2DP_SINK_HFP_HF_H__
-
-#include <stdbool.h>
 #include "esp_err.h"
-#include "bt_app_avrc.h" // Include for AVRC types
+#include "esp_bt_defs.h"
+#include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/**
- * @brief Configuration structure for a2dpSinkHfpHf component
- */
-typedef struct {
-    const char *device_name;        ///< Bluetooth device name (visible when scanning)
-    
-    // I2S TX (speaker output) pin configuration
-    int i2s_tx_bck;                 ///< I2S TX bit clock pin
-    int i2s_tx_ws;                  ///< I2S TX word select (LRCK) pin
-    int i2s_tx_dout;                ///< I2S TX data out (speaker/DAC) pin
-    
-    // I2S RX (microphone input) pin configuration
-    int i2s_rx_bck;                 ///< I2S RX bit clock pin
-    int i2s_rx_ws;                  ///< I2S RX word select (LRCK) pin
-    int i2s_rx_din;                 ///< I2S RX data in (microphone) pin
-} a2dpSinkHfpHf_config_t;
+// Forward declarations - hide implementation details
+typedef struct a2dpSinkHfpHf_config_t a2dpSinkHfpHf_config_t;
+typedef struct a2dpSinkHfpHf_contact_t a2dpSinkHfpHf_contact_t;
+typedef struct a2dpSinkHfpHf_phone_number_t a2dpSinkHfpHf_phone_number_t;
+typedef void* a2dpSinkHfpHf_phonebook_handle_t;
 
-/**
- * @brief Initialize the A2DP Sink + HFP Hands-Free component
- * 
- * This must be called after Bluedroid stack is initialized (esp_bluedroid_enable()).
- * It initializes:
- * - BT core task dispatcher
- * - I2S audio interface with configured pins
- * - Audio codec (mSBC for HFP)
- * - GAP layer (device discovery and pairing)
- * - HFP Hands-Free profile
- * - A2DP Sink profile
- * 
- * @param config Configuration structure with pin and device settings
- * @return ESP_OK on success, ESP_ERR_* on error
- */
+// Configuration structure
+struct a2dpSinkHfpHf_config_t {
+    const char *device_name;
+    int i2s_tx_bck;
+    int i2s_tx_ws;
+    int i2s_tx_dout;
+    int i2s_rx_bck;
+    int i2s_rx_ws;
+    int i2s_rx_din;
+};
+
+// Contact structure
+#define MAX_NAME_LEN 64
+#define MAX_PHONE_LEN 32
+#define MAX_PHONES_PER_CONTACT 5
+
+struct a2dpSinkHfpHf_phone_number_t {
+    char number[MAX_PHONE_LEN];
+    char type[16];  // "CELL", "HOME", "WORK", etc.
+};
+
+struct a2dpSinkHfpHf_contact_t {
+    char full_name[MAX_NAME_LEN];
+    a2dpSinkHfpHf_phone_number_t phones[MAX_PHONES_PER_CONTACT];
+    uint8_t phone_count;
+};
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
 esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config);
-
-/**
- * @brief Deinitialize the component
- * 
- * Cleanly shuts down all profiles, stops audio, and releases resources.
- * 
- * @return ESP_OK on success
- */
 esp_err_t a2dpSinkHfpHf_deinit(void);
-
-/**
- * @brief Start Bluetooth device discovery (make device discoverable)
- * 
- * Makes the device visible to other Bluetooth devices during scanning.
- * 
- * @return ESP_OK on success, ESP_ERR_* on error
- */
-esp_err_t a2dpSinkHfpHf_start_discovery(void);
-
-/**
- * @brief Stop Bluetooth device discovery
- * 
- * @return ESP_OK on success, ESP_ERR_* on error
- */
-esp_err_t a2dpSinkHfpHf_cancel_discovery(void);
-
-/**
- * @brief Get the current device name
- * 
- * @return Device name string, or NULL if not set
- */
-const char *a2dpSinkHfpHf_get_device_name(void);
-
-/**
- * @brief Check if device is connected (HFP or A2DP)
- * 
- * @return true if connected, false otherwise
- */
-bool a2dpSinkHfpHf_is_connected(void);
-
-/**
- * @brief Set country code for phonebook before initialization
- */
-esp_err_t a2dpSinkHfpHf_set_country_code(const char *country_code);
-
-/**
- * @brief Set Bluetooth pairing PIN code (compile-time configuration)
- * 
- * This function MUST be called BEFORE a2dpSinkHfpHf_init() to take effect.
- * Use this to configure the PIN code at compile time from main.c.
- * 
- * @param pin_code PIN code string (4-16 digits, ASCII '0'-'9')
- * @param pin_len Length of PIN code (must be 4-16)
- * @return ESP_OK on success
- * @return ESP_ERR_INVALID_ARG if pin_code is NULL or invalid
- * @return ESP_ERR_INVALID_STATE if called after initialization
- * 
- * @example
- *   // In main.c, before calling a2dpSinkHfpHf_init()
- *   a2dpSinkHfpHf_set_pin("5678", 4);
- */
-esp_err_t a2dpSinkHfpHf_set_pin(const char *pin_code, uint8_t pin_len);
-
-/**
- * @brief Get current PIN code configuration
- * 
- * @param pin_code Buffer to receive PIN (minimum 17 bytes)
- * @param pin_len Pointer to receive PIN length
- * @return ESP_OK on success
- * @return ESP_ERR_INVALID_ARG if buffers are NULL
- */
-esp_err_t a2dpSinkHfpHf_get_pin(char *pin_code, uint8_t *pin_len);
-
-/* ============================================
- * AVRC (Audio/Video Remote Control) API
- * ============================================ */
-
-/**
- * @brief Register callback for AVRC connection state changes
- * @param callback Function to call when connection state changes (connected/disconnected)
- */
-void a2dpSinkHfpHf_register_avrc_conn_callback(bt_avrc_conn_state_cb_t callback);
-
-/**
- * @brief Register callback for metadata updates (track, artist, album, etc.)
- * @param callback Function to call when metadata changes
- */
-void a2dpSinkHfpHf_register_avrc_metadata_callback(bt_avrc_metadata_cb_t callback);
-
-/**
- * @brief Register callback for playback status changes (playing, paused, stopped, etc.)
- * @param callback Function to call when playback status changes
- */
-void a2dpSinkHfpHf_register_avrc_playback_callback(bt_avrc_playback_status_cb_t callback);
-
-/**
- * @brief Register callback for volume changes
- * @param callback Function to call when volume changes (0-127)
- */
-void a2dpSinkHfpHf_register_avrc_volume_callback(bt_avrc_volume_cb_t callback);
-
-/**
- * @brief Get current AVRC metadata (if available)
- * @return Pointer to metadata struct, or NULL if not available
- */
-const bt_avrc_metadata_t* a2dpSinkHfpHf_get_avrc_metadata(void);
-
-/**
- * @brief Check if AVRC is connected
- * @return true if connected, false otherwise
- */
-bool a2dpSinkHfpHf_is_avrc_connected(void);
-
-/**
- * @brief Send AVRC play command
- * @return true if sent successfully, false if not connected
- */
-bool a2dpSinkHfpHf_avrc_play(void);
-
-/**
- * @brief Send AVRC pause command
- * @return true if sent successfully, false if not connected
- */
-bool a2dpSinkHfpHf_avrc_pause(void);
-
-/**
- * @brief Send AVRC next track command
- * @return true if sent successfully, false if not connected
- */
-bool a2dpSinkHfpHf_avrc_next(void);
-
-/**
- * @brief Send AVRC previous track command
- * @return true if sent successfully, false if not connected
- */
-bool a2dpSinkHfpHf_avrc_prev(void);
-
+esp_err_t a2dpSinkHfpHf_config(const a2dpSinkHfpHf_config_t *config);
 
 // ============================================================================
-// HFP HANDS-FREE CONTROL FUNCTIONS
+// PHONEBOOK API
 // ============================================================================
 
 /**
- * @brief Answer incoming call
- * 
- * @return esp_err_t ESP_OK on success
+ * @brief Get the current phonebook handle
+ * @return Phonebook handle or NULL if not available
+ */
+a2dpSinkHfpHf_phonebook_handle_t a2dpSinkHfpHf_get_phonebook(void);
+
+/**
+ * @brief Get total number of contacts in phonebook
+ * @param pb Phonebook handle
+ * @return Number of contacts
+ */
+uint16_t a2dpSinkHfpHf_phonebook_get_count(a2dpSinkHfpHf_phonebook_handle_t pb);
+
+/**
+ * @brief Search phonebook for contacts starting with a specific letter
+ * @param pb Phonebook handle
+ * @param letter Letter to search (A-Z)
+ * @param count Output: number of contacts found
+ * @return Array of contacts (caller must free), or NULL if none found
+ */
+a2dpSinkHfpHf_contact_t* a2dpSinkHfpHf_phonebook_search_by_letter(
+    a2dpSinkHfpHf_phonebook_handle_t pb,
+    char letter,
+    uint16_t *count
+);
+
+/**
+ * @brief Search phonebook by name substring
+ * @param pb Phonebook handle
+ * @param name Name substring to search
+ * @param count Output: number of contacts found
+ * @return Array of contacts (caller must free), or NULL if none found
+ */
+a2dpSinkHfpHf_contact_t* a2dpSinkHfpHf_phonebook_search_by_name(
+    a2dpSinkHfpHf_phonebook_handle_t pb,
+    const char *name,
+    uint16_t *count
+);
+
+/**
+ * @brief Search phonebook by phone number
+ * @param pb Phonebook handle
+ * @param number Phone number to search
+ * @return Contact (caller must free), or NULL if not found
+ */
+a2dpSinkHfpHf_contact_t* a2dpSinkHfpHf_phonebook_search_by_number(
+    a2dpSinkHfpHf_phonebook_handle_t pb,
+    const char *number
+);
+
+/**
+ * @brief Get phone numbers for a specific contact
+ * @param pb Phonebook handle
+ * @param full_name Full name of contact
+ * @param count Output: number of phone numbers
+ * @return Array of phone numbers (caller must free), or NULL if not found
+ */
+a2dpSinkHfpHf_phone_number_t* a2dpSinkHfpHf_phonebook_get_numbers(
+    a2dpSinkHfpHf_phonebook_handle_t pb,
+    const char *full_name,
+    uint8_t *count
+);
+
+// ============================================================================
+// HFP CALL CONTROL API
+// ============================================================================
+
+/**
+ * @brief Answer an incoming call
  */
 esp_err_t a2dpSinkHfpHf_answer_call(void);
 
 /**
- * @brief Reject incoming call
- * 
- * @return esp_err_t ESP_OK on success
+ * @brief Reject an incoming call
  */
 esp_err_t a2dpSinkHfpHf_reject_call(void);
 
 /**
  * @brief Hang up active call
- * 
- * @return esp_err_t ESP_OK on success
  */
 esp_err_t a2dpSinkHfpHf_hangup_call(void);
 
 /**
  * @brief Dial a phone number
- * 
- * @param number Phone number string (e.g., "1234567890")
- * @return esp_err_t ESP_OK on success, ESP_ERR_INVALID_ARG if number is NULL
+ * @param number Phone number to dial
  */
 esp_err_t a2dpSinkHfpHf_dial_number(const char *number);
 
 /**
  * @brief Redial last dialed number
- * 
- * @return esp_err_t ESP_OK on success
  */
 esp_err_t a2dpSinkHfpHf_redial(void);
 
 /**
- * @brief Dial from memory location (speed dial)
- * 
- * @param location Memory location number (implementation depends on phone)
- * @return esp_err_t ESP_OK on success
+ * @brief Dial from memory location
+ * @param location Memory location (1-99)
  */
 esp_err_t a2dpSinkHfpHf_dial_memory(int location);
 
 /**
  * @brief Start voice recognition (Siri, Google Assistant, etc.)
- * 
- * @return esp_err_t ESP_OK on success
  */
 esp_err_t a2dpSinkHfpHf_start_voice_recognition(void);
 
 /**
  * @brief Stop voice recognition
- * 
- * @return esp_err_t ESP_OK on success
  */
 esp_err_t a2dpSinkHfpHf_stop_voice_recognition(void);
 
 /**
- * @brief Update volume on phone
- * 
- * @param target Volume target: "spk" for speaker, "mic" for microphone
+ * @brief Update speaker or microphone volume
+ * @param target "spk" for speaker, "mic" for microphone
  * @param volume Volume level (0-15)
- * @return esp_err_t ESP_OK on success, ESP_ERR_INVALID_ARG if parameters invalid
  */
 esp_err_t a2dpSinkHfpHf_volume_update(const char *target, int volume);
 
-/**
- * @brief Query current network operator
- * 
- * @return esp_err_t ESP_OK on success
- */
-esp_err_t a2dpSinkHfpHf_query_operator(void);
+// ============================================================================
+// DEVICE CONTROL API
+// ============================================================================
 
-/**
- * @brief Query list of current calls
- * 
- * @return esp_err_t ESP_OK on success
- */
-esp_err_t a2dpSinkHfpHf_query_current_calls(void);
+esp_err_t a2dpSinkHfpHf_start_discovery(void);
+esp_err_t a2dpSinkHfpHf_cancel_discovery(void);
+const char* a2dpSinkHfpHf_get_device_name(void);
+bool a2dpSinkHfpHf_is_connected(void);
+esp_err_t a2dpSinkHfpHf_set_country_code(const char *country_code);
+esp_err_t a2dpSinkHfpHf_set_pin(const char *pin_code, uint8_t pin_len);
 
-/**
- * @brief Retrieve subscriber number (own phone number)
- * 
- * @return esp_err_t ESP_OK on success
- */
-esp_err_t a2dpSinkHfpHf_retrieve_subscriber_info(void);
+// ============================================================================
+// AVRC API
+// ============================================================================
 
-/**
- * @brief Send response and hold command
- * 
- * @param btrh Response/Hold value:
- *             0 = Put call on hold
- *             1 = Accept held call
- *             2 = Reject held call
- * @return esp_err_t ESP_OK on success, ESP_ERR_INVALID_ARG if value out of range
- */
-esp_err_t a2dpSinkHfpHf_send_btrh(int btrh);
-
-/**
- * @brief Send iPhone XAPL (accessory protocol) command
- * 
- * @param features Feature string (e.g., "iPhone-6.3.0,2")
- * @return esp_err_t ESP_OK on success, ESP_ERR_INVALID_ARG if features is NULL
- */
-esp_err_t a2dpSinkHfpHf_send_xapl(const char *features);
-
-/**
- * @brief Send iPhone accessory event (battery level, docked state)
- * 
- * @param bat_level Battery level (0-9, or -1 to not send)
- * @param docked Docked state (0=not docked, 1=docked, -1 to not send)
- * @return esp_err_t ESP_OK on success
- */
-esp_err_t a2dpSinkHfpHf_send_iphoneaccev(int bat_level, int docked);
+bool a2dpSinkHfpHf_avrc_play(void);
+bool a2dpSinkHfpHf_avrc_pause(void);
+bool a2dpSinkHfpHf_avrc_next(void);
+bool a2dpSinkHfpHf_avrc_prev(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __A2DP_SINK_HFP_HF_H__ */
+#endif // __A2DPSINK_HFPHF_H__

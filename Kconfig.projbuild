@@ -1,0 +1,112 @@
+menu "A2DP Sink + HFP Client Configuration"
+
+    config A2DPSINK_HFPHF_DEVICE_NAME
+        string "Bluetooth Device Name"
+        default "ESP32-audio"
+        help
+            The Bluetooth device name that will be visible to other devices. (max 32 chars)
+
+    config A2DPSINK_HFPHF_PIN_CODE
+        string "Bluetooth PIN Code"
+        default "5678"
+        help
+            PIN code for Bluetooth pairing (4-16 digits).
+
+    config A2DPSINK_HFPHF_COUNTRY_CODE
+        string "Country Code for Phonebook"
+        default "31"
+        help
+            Two or three digit country code for international phone number formatting.
+            Example: "31" for Netherlands, "1" for USA/Canada.
+
+    menu "AVRC Metadata Configuration"
+        config A2DPSINK_HFPHF_AVRC_METADATA_TITLE
+            bool "Request Track Title"
+            default y
+            help
+                Request track title metadata from connected device.
+
+        config A2DPSINK_HFPHF_AVRC_METADATA_ARTIST
+            bool "Request Artist Name"
+            default y
+            help
+                Request artist name metadata from connected device.
+
+        config A2DPSINK_HFPHF_AVRC_METADATA_ALBUM
+            bool "Request Album Name"
+            default y
+            help
+                Request album name metadata from connected device.
+
+        config A2DPSINK_HFPHF_AVRC_METADATA_TRACK_NUM
+            bool "Request Track Number"
+            default n
+            help
+                Request track number (position on album) metadata.
+
+        config A2DPSINK_HFPHF_AVRC_METADATA_NUM_TRACKS
+            bool "Request Total Tracks"
+            default n
+            help
+                Request total number of tracks on album metadata.
+
+        config A2DPSINK_HFPHF_AVRC_METADATA_GENRE
+            bool "Request Genre"
+            default n
+            help
+                Request track genre metadata from connected device.
+
+        config A2DPSINK_HFPHF_AVRC_METADATA_PLAYING_TIME
+            bool "Request Playing Time"
+            default n
+            help
+                Request total playing time metadata from connected device.
+    endmenu
+
+    menu "I2S TX Configuration (Audio Output)"
+        config A2DPSINK_HFPHF_I2S_TX_BCK
+            int "I2S TX BCK Pin"
+            default 26
+            range 0 39
+            help
+                GPIO pin for I2S TX bit clock (BCK).
+
+        config A2DPSINK_HFPHF_I2S_TX_WS
+            int "I2S TX WS Pin"
+            default 17
+            range 0 39
+            help
+                GPIO pin for I2S TX word select (WS/LRCK).
+
+        config A2DPSINK_HFPHF_I2S_TX_DOUT
+            int "I2S TX DOUT Pin"
+            default 25
+            range 0 39
+            help
+                GPIO pin for I2S TX data output.
+    endmenu
+
+    menu "I2S RX Configuration (Microphone Input)"
+        config A2DPSINK_HFPHF_I2S_RX_BCK
+            int "I2S RX BCK Pin"
+            default 16
+            range 0 39
+            help
+                GPIO pin for I2S RX bit clock (BCK).
+
+        config A2DPSINK_HFPHF_I2S_RX_WS
+            int "I2S RX WS Pin"
+            default 27
+            range 0 39
+            help
+                GPIO pin for I2S RX word select (WS/LRCK).
+
+        config A2DPSINK_HFPHF_I2S_RX_DIN
+            int "I2S RX DIN Pin"
+            default 14
+            range 0 39
+            help
+                GPIO pin for I2S RX data input.
+    endmenu
+
+endmenu

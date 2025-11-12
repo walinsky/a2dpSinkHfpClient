@@ -11,6 +11,7 @@
 #include "esp_bt.h"
 #include "esp_bt_defs.h"
 #include "esp_gap_bt_api.h"
+#include "sdkconfig.h"
 
 #include "a2dpSinkHfpHf.h"
 #include "a2dpSink.h"
@@ -34,6 +35,33 @@ static char s_country_code[4] = DEFAULT_COUNTRY_CODE;
 // ============================================================================
 
 /**
+ * @brief Set custom configuration (optional)
+ * This function allows runtime configuration override.
+ * Must be called BEFORE a2dpSinkHfpHf_init()
+ * 
+ * @param config Pointer to configuration structure
+ * @return ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_config(const a2dpSinkHfpHf_config_t *config)
+{
+    if (s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Cannot configure after initialization");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    if (!config) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Config is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    // Store the custom configuration for use during init
+    memcpy(&s_current_config, config, sizeof(a2dpSinkHfpHf_config_t));
+    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Custom configuration stored");
+    return ESP_OK;
+}
+
+/**
  * @brief Initialize all BT subsystems in sequence
  *
  * Steps:
@@ -45,18 +73,34 @@ static char s_country_code[4] = DEFAULT_COUNTRY_CODE;
  */
 esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
 {
-    if (!config) {
-        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Config is NULL");
-        return ESP_ERR_INVALID_ARG;
-    }
-
     if (s_component_initialized) {
         ESP_LOGW(A2DP_SINK_HFP_HF_TAG, "Component already initialized");
         return ESP_OK;
     }
 
+    // Create default config from Kconfig if not provided
+    a2dpSinkHfpHf_config_t default_config;
+    if (!config) {
+        default_config = (a2dpSinkHfpHf_config_t){
+            .device_name = CONFIG_A2DPSINK_HFPHF_DEVICE_NAME,
+            .i2s_tx_bck = CONFIG_A2DPSINK_HFPHF_I2S_TX_BCK,
+            .i2s_tx_ws = CONFIG_A2DPSINK_HFPHF_I2S_TX_WS,
+            .i2s_tx_dout = CONFIG_A2DPSINK_HFPHF_I2S_TX_DOUT,
+            .i2s_rx_bck = CONFIG_A2DPSINK_HFPHF_I2S_RX_BCK,
+            .i2s_rx_ws = CONFIG_A2DPSINK_HFPHF_I2S_RX_WS,
+            .i2s_rx_din = CONFIG_A2DPSINK_HFPHF_I2S_RX_DIN
+        };
+        config = &default_config;
+        
+        // Also apply Kconfig PIN and country code
+        bt_gap_set_pin(CONFIG_A2DPSINK_HFPHF_PIN_CODE, strlen(CONFIG_A2DPSINK_HFPHF_PIN_CODE));
+        strncpy(s_country_code, CONFIG_A2DPSINK_HFPHF_COUNTRY_CODE, sizeof(s_country_code) - 1);
+        s_country_code[sizeof(s_country_code) - 1] = '\0';
+    }
+
     // Store configuration
     memcpy(&s_current_config, config, sizeof(a2dpSinkHfpHf_config_t));
+    
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "========================================");
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Initializing A2DP Sink + HFP Hands-Free");
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Device: %s", config->device_name);
@@ -240,6 +284,78 @@ esp_err_t a2dpSinkHfpHf_deinit(void)
 }
 
 // ============================================================================
+// PHONEBOOK API WRAPPERS
+// ============================================================================
+
+a2dpSinkHfpHf_phonebook_handle_t a2dpSinkHfpHf_get_phonebook(void)
+{
+    if (!s_component_initialized) {
+        return NULL;
+    }
+    return (a2dpSinkHfpHf_phonebook_handle_t)bt_app_pbac_get_current_phonebook();
+}
+
+uint16_t a2dpSinkHfpHf_phonebook_get_count(a2dpSinkHfpHf_phonebook_handle_t pb)
+{
+    if (!pb) {
+        return 0;
+    }
+    return phonebook_get_count((phonebook_t*)pb);
+}
+
+a2dpSinkHfpHf_contact_t* a2dpSinkHfpHf_phonebook_search_by_letter(
+    a2dpSinkHfpHf_phonebook_handle_t pb,
+    char letter,
+    uint16_t *count)
+{
+    if (!pb || !count) {
+        return NULL;
+    }
+    
+    // Cast internal types to public types (they're binary compatible)
+    contact_t *internal_contacts = phonebook_search_by_letter((phonebook_t*)pb, letter, count);
+    return (a2dpSinkHfpHf_contact_t*)internal_contacts;
+}
+
+a2dpSinkHfpHf_contact_t* a2dpSinkHfpHf_phonebook_search_by_name(
+    a2dpSinkHfpHf_phonebook_handle_t pb,
+    const char *name,
+    uint16_t *count)
+{
+    if (!pb || !name || !count) {
+        return NULL;
+    }
+    
+    contact_t *internal_contacts = phonebook_search_by_name((phonebook_t*)pb, name, count);
+    return (a2dpSinkHfpHf_contact_t*)internal_contacts;
+}
+
+a2dpSinkHfpHf_contact_t* a2dpSinkHfpHf_phonebook_search_by_number(
+    a2dpSinkHfpHf_phonebook_handle_t pb,
+    const char *number)
+{
+    if (!pb || !number) {
+        return NULL;
+    }
+    
+    contact_t *internal_contact = phonebook_search_by_number((phonebook_t*)pb, number);
+    return (a2dpSinkHfpHf_contact_t*)internal_contact;
+}
+
+a2dpSinkHfpHf_phone_number_t* a2dpSinkHfpHf_phonebook_get_numbers(
+    a2dpSinkHfpHf_phonebook_handle_t pb,
+    const char *full_name,
+    uint8_t *count)
+{
+    if (!pb || !full_name || !count) {
+        return NULL;
+    }
+    
+    phone_number_t *internal_numbers = phonebook_get_numbers((phonebook_t*)pb, full_name, count);
+    return (a2dpSinkHfpHf_phone_number_t*)internal_numbers;
+}
+
+// ============================================================================
 // PUBLIC API FUNCTIONS
 // ============================================================================
 
@@ -329,6 +445,20 @@ esp_err_t a2dpSinkHfpHf_get_pin(char *pin_code, uint8_t *pin_len)
 // AVRC PUBLIC API (Wrappers to bt_app_avrc.c)
 // ============================================================================
 
+esp_err_t a2dpSinkHfpHf_set_avrc_metadata_mask(uint8_t attr_mask)
+{
+    if (s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Cannot change AVRC metadata mask after initialization");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!bt_app_avrc_set_metadata_mask(attr_mask)) {
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
 void a2dpSinkHfpHf_register_avrc_conn_callback(bt_avrc_conn_state_cb_t callback)
 {
     bt_app_avrc_register_conn_callback(callback);
@@ -361,30 +491,51 @@ bool a2dpSinkHfpHf_is_avrc_connected(void)
 
 bool a2dpSinkHfpHf_avrc_play(void)
 {
+    if (!s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
+        return false;
+    }
+    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "AVRC: Play");
     return bt_app_avrc_cmd_play();
 }
 
 bool a2dpSinkHfpHf_avrc_pause(void)
 {
+    if (!s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
+        return false;
+    }
+    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "AVRC: Pause");
     return bt_app_avrc_cmd_pause();
 }
 
 bool a2dpSinkHfpHf_avrc_next(void)
 {
+    if (!s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
+        return false;
+    }
+    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "AVRC: Next track");
     return bt_app_avrc_cmd_next();
 }
 
 bool a2dpSinkHfpHf_avrc_prev(void)
 {
+    if (!s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
+        return false;
+    }
+    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "AVRC: Previous track");
     return bt_app_avrc_cmd_prev();
 }
 
-// ============================================================================
-// HFP HANDS-FREE CONTROL FUNCTIONS
-// ============================================================================
 
 // ============================================================================
-// Call Control Functions
+// HFP HANDS-FREE CONTROL FUNCTIONS
 // ============================================================================
 
 esp_err_t a2dpSinkHfpHf_answer_call(void) {

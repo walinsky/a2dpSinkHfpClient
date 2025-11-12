@@ -20,15 +20,10 @@
 // COMPILE-TIME CONFIGURATION
 // ============================================================================
 
-// Set your custom PIN code here (4-16 digits)
-#define BT_PIN_CODE "5678"
-#define BT_PIN_LENGTH 4
+// just run menuconfig
+// or if you insist. config here, and do your config calls from main
+// before calling ESP_ERROR_CHECK(a2dpSinkHfpHf_init(&config));
 
-// Bluetooth Device Name
-#define BT_DEVICE_NAME      "ESP32-boo"
-
-// country code for phonebook
-#define COUNTRY_CODE        "31" // Netherlands
 
 // ============================================================================
 // AVRC CALLBACK EXAMPLES (Optional)
@@ -117,26 +112,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
     ESP_LOGI(TAG, "✓ NVS initialized");
 
-    // ===== STEP 2: Configure PIN Code (BEFORE init) =====
-    ESP_LOGI(TAG, "Setting Bluetooth PIN code...");
-    ret = a2dpSinkHfpHf_set_pin(BT_PIN_CODE, BT_PIN_LENGTH);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "✓ PIN code set to: %s", BT_PIN_CODE);
-        ESP_LOGW(TAG, "⚠️  Use this PIN when pairing with your phone!");
-    } else {
-        ESP_LOGE(TAG, "Failed to set PIN code: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    ret = a2dpSinkHfpHf_set_country_code(COUNTRY_CODE);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "✓ country code set to: %s", COUNTRY_CODE);
-        ESP_LOGW(TAG, "this is used when parsing the phonebook from your phone!");
-    } else {
-        ESP_LOGE(TAG, "Failed to set country code: %s", esp_err_to_name(ret));
-        return;
-    }
-    // ===== STEP 3: Register AVRC Callbacks (Optional) =====
+    // ===== STEP 2: Register AVRC Callbacks (Optional) =====
     ESP_LOGI(TAG, "Registering AVRC callbacks...");
     a2dpSinkHfpHf_register_avrc_conn_callback(avrc_conn_callback);
     a2dpSinkHfpHf_register_avrc_metadata_callback(avrc_metadata_callback);
@@ -144,21 +120,9 @@ void app_main(void)
     a2dpSinkHfpHf_register_avrc_volume_callback(avrc_volume_callback);
     ESP_LOGI(TAG, "✓ AVRC callbacks registered");
 
-    // ===== STEP 4: Configure Component =====
-    // Using direct pin numbers (your preferred method)
-    a2dpSinkHfpHf_config_t config = {
-        .device_name = BT_DEVICE_NAME,
-        .i2s_tx_bck = 26,   // TX BCK
-        .i2s_tx_ws = 17,    // TX WS
-        .i2s_tx_dout = 25,  // TX DOUT
-        .i2s_rx_bck = 16,   // RX BCK
-        .i2s_rx_ws = 27,    // RX WS
-        .i2s_rx_din = 14    // RX DIN
-    };
-
-    // ===== STEP 5: Initialize Bluetooth Component =====
+    // ===== STEP 3: Initialize Bluetooth Component =====
     ESP_LOGI(TAG, "Initializing Bluetooth component...");
-    ret = a2dpSinkHfpHf_init(&config);
+    ret = a2dpSinkHfpHf_init(NULL);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize component: %s", esp_err_to_name(ret));
         return;
@@ -168,18 +132,9 @@ void app_main(void)
     ESP_LOGI(TAG, "✓ System Ready!");
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "");
-    ESP_LOGI(TAG, "Device Name: %s", BT_DEVICE_NAME);
-    ESP_LOGI(TAG, "PIN Code:    %s", BT_PIN_CODE);
-    ESP_LOGI(TAG, "");
-    ESP_LOGI(TAG, "I2S Configuration:");
-    ESP_LOGI(TAG, "  TX: BCK=26, WS=17, DOUT=25");
-    ESP_LOGI(TAG, "  RX: BCK=16, WS=27, DIN=14");
-    ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "Instructions:");
-    ESP_LOGI(TAG, "1. Scan for Bluetooth devices on your phone");
-    ESP_LOGI(TAG, "2. Look for '%s'", BT_DEVICE_NAME);
-    ESP_LOGI(TAG, "3. When prompted, enter PIN: %s", BT_PIN_CODE);
-    ESP_LOGI(TAG, "4. Play music or make a call");
+    ESP_LOGI(TAG, "1. Pair your phone");
+    ESP_LOGI(TAG, "2. Play music or make a call");
     ESP_LOGI(TAG, "========================================");
 
     // ===== STEP 6: Main Loop (Optional - Control Commands) =====
