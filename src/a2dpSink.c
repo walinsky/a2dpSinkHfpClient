@@ -42,6 +42,9 @@ static void bt_app_a2dp_conn_state_handler(esp_a2d_cb_param_t *param)
     case ESP_A2D_CONNECTION_STATE_DISCONNECTED:
         s_a2dp_connected = false;
         s_audio_stream_active = false;
+        // Notify disconnection
+        extern void a2dp_sink_notify_connection(bool connected, const uint8_t *bda);
+        a2dp_sink_notify_connection(false, NULL);
         break;
 
     case ESP_A2D_CONNECTION_STATE_CONNECTING:
@@ -53,6 +56,9 @@ static void bt_app_a2dp_conn_state_handler(esp_a2d_cb_param_t *param)
         // bt_i2s_a2dp_task_init();
         ESP_LOGI(A2DP_SINK_TAG, "✓ A2DP connected from: %02x:%02x:%02x:%02x:%02x:%02x",
                  bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
+        // Notify connection
+        extern void a2dp_sink_notify_connection(bool connected, const uint8_t *bda);
+        a2dp_sink_notify_connection(true, bda);
         break;
 
     case ESP_A2D_CONNECTION_STATE_DISCONNECTING:
@@ -120,11 +126,16 @@ static void bt_app_a2dp_audio_state_handler(esp_a2d_cb_param_t *param)
         s_audio_data_params_set = false;
         bt_i2s_a2dp_start();
         ESP_LOGI(A2DP_SINK_TAG, "✓ A2DP audio stream started");
-        
+        // Notify audio streaming started
+        extern void a2dp_sink_notify_audio_state(bool streaming);
+        a2dp_sink_notify_audio_state(true);
     } else if (param->audio_stat.state == ESP_A2D_AUDIO_STATE_SUSPEND) {
         s_audio_stream_active = false;
         bt_i2s_a2dp_stop();
         ESP_LOGI(A2DP_SINK_TAG, "A2DP audio stream stopped");
+        // Notify audio streaming stopped
+        extern void a2dp_sink_notify_audio_state(bool streaming);
+        a2dp_sink_notify_audio_state(false);
     }
 }
 

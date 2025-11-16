@@ -298,6 +298,9 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
                 s_hfp_audio_connected = true;
                 bt_i2s_hfp_start();
                 esp_hf_client_register_audio_data_callback(bt_app_hf_client_audio_data_cb);
+                // Notify HFP audio connected (call active)
+                extern void hfp_notify_call_state(bool call_active, int call_state);
+                hfp_notify_call_state(true, 1);  // 1 = call active
             } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
                 ESP_LOGI(BT_HF_TAG, "%s ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED", __func__);
                 // RESUME PHONEBOOK AFTER CALL
@@ -306,6 +309,9 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
                 s_msbc_air_mode = false;
                 s_hfp_audio_connected = false;
                 bt_i2s_hfp_stop();
+                // Notify HFP audio disconnected (call ended)
+                extern void hfp_notify_call_state(bool call_active, int call_state);
+                hfp_notify_call_state(false, 0);  // 0 = no call
             }
     #endif /* #if CONFIG_BT_HFP_AUDIO_DATA_PATH_HCI && CONFIG_BT_HFP_USE_EXTERNAL_CODEC */
             break;
@@ -357,6 +363,12 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
         {
             ESP_LOGI(BT_HF_TAG, "--Call indicator %s",
                     c_call_str[param->call.status]);
+            // Notify call state changes
+            extern void hfp_notify_call_state(bool call_active, int call_state);
+            hfp_notify_call_state(
+                param->call.status == ESP_HF_CALL_STATUS_CALL_IN_PROGRESS,
+                param->call.status
+            );
             break;
         }
 

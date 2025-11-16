@@ -17,6 +17,26 @@ typedef struct a2dpSinkHfpHf_contact_t a2dpSinkHfpHf_contact_t;
 typedef struct a2dpSinkHfpHf_phone_number_t a2dpSinkHfpHf_phone_number_t;
 typedef void* a2dpSinkHfpHf_phonebook_handle_t;
 
+/**
+ * @brief Bluetooth connection state callback
+ * @param connected true if connected, false if disconnected
+ * @param remote_bda Remote device Bluetooth address (or NULL on disconnect)
+ */
+typedef void (*bt_connection_cb_t)(bool connected, const uint8_t *remote_bda);
+
+/**
+ * @brief A2DP audio stream state callback
+ * @param streaming true if audio streaming started, false if stopped
+ */
+typedef void (*a2dp_audio_state_cb_t)(bool streaming);
+
+/**
+ * @brief HFP call state callback
+ * @param call_active true if call is active/ringing, false if no call
+ * @param call_state HFP call state (idle, incoming, outgoing, active)
+ */
+typedef void (*hfp_call_state_cb_t)(bool call_active, int call_state);
+
 // Configuration structure
 struct a2dpSinkHfpHf_config_t {
     const char *device_name;
@@ -201,6 +221,23 @@ const char* a2dpSinkHfpHf_get_device_name(void);
 bool a2dpSinkHfpHf_is_connected(void);
 esp_err_t a2dpSinkHfpHf_set_country_code(const char *country_code);
 esp_err_t a2dpSinkHfpHf_set_pin(const char *pin_code, uint8_t pin_len);
+/**
+ * @brief Register callback for Bluetooth connection events
+ * @param callback Callback function (NULL to unregister)
+ */
+void a2dp_sink_hfp_hf_register_connection_cb(bt_connection_cb_t callback);
+
+/**
+ * @brief Register callback for A2DP audio streaming state
+ * @param callback Callback function (NULL to unregister)
+ */
+void a2dp_sink_hfp_hf_register_audio_state_cb(a2dp_audio_state_cb_t callback);
+
+/**
+ * @brief Register callback for HFP call state changes
+ * @param callback Callback function (NULL to unregister)
+ */
+void a2dp_sink_hfp_hf_register_call_state_cb(hfp_call_state_cb_t callback);
 
 // ============================================================================
 // AVRC API

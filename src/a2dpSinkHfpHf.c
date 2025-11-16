@@ -29,7 +29,9 @@
 static bool s_component_initialized = false;
 static a2dpSinkHfpHf_config_t s_current_config = {0};
 static char s_country_code[4] = DEFAULT_COUNTRY_CODE;
-
+static bt_connection_cb_t s_connection_callback = NULL;
+static a2dp_audio_state_cb_t s_audio_state_callback = NULL;
+static hfp_call_state_cb_t s_call_state_callback = NULL;
 // ============================================================================
 // COMPONENT INITIALIZATION
 // ============================================================================
@@ -702,4 +704,52 @@ esp_err_t a2dpSinkHfpHf_send_iphoneaccev(int bat_level, int docked) {
     bool is_docked = (docked > 0);
 
     return esp_hf_client_send_iphoneaccev(battery, is_docked);
+}
+
+void a2dp_sink_hfp_hf_register_connection_cb(bt_connection_cb_t callback)
+{
+    s_connection_callback = callback;
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Connection callback %s", 
+             callback ? "registered" : "unregistered");
+}
+
+void a2dp_sink_hfp_hf_register_audio_state_cb(a2dp_audio_state_cb_t callback)
+{
+    s_audio_state_callback = callback;
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Audio state callback %s", 
+             callback ? "registered" : "unregistered");
+}
+
+void a2dp_sink_hfp_hf_register_call_state_cb(hfp_call_state_cb_t callback)
+{
+    s_call_state_callback = callback;
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Call state callback %s", 
+             callback ? "registered" : "unregistered");
+}
+
+void a2dp_sink_notify_connection(bool connected, const uint8_t *bda)
+{
+    if (s_connection_callback) {
+        ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "→ Connection callback: %s", 
+                 connected ? "CONNECTED" : "DISCONNECTED");
+        s_connection_callback(connected, bda);
+    }
+}
+
+void a2dp_sink_notify_audio_state(bool streaming)
+{
+    if (s_audio_state_callback) {
+        ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "→ Audio state callback: %s", 
+                 streaming ? "STREAMING" : "STOPPED");
+        s_audio_state_callback(streaming);
+    }
+}
+
+void hfp_notify_call_state(bool call_active, int call_state)
+{
+    if (s_call_state_callback) {
+        ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "→ Call state callback: %s (state=%d)", 
+                 call_active ? "ACTIVE" : "IDLE", call_state);
+        s_call_state_callback(call_active, call_state);
+    }
 }
