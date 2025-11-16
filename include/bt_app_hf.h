@@ -18,4 +18,19 @@
  */
 void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param);
 
+/**
+ * @brief Connect HFP audio (establish SCO/eSCO connection)
+ * 
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t bt_app_hf_connect_audio(void);
+
+/**
+ * @brief Disconnect HFP audio
+ * 
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t bt_app_hf_disconnect_audio(void);
+
+
 #endif /* __BT_APP_HF_H__*/

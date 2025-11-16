@@ -163,6 +163,26 @@ a2dpSinkHfpHf_phone_number_t* a2dpSinkHfpHf_phonebook_get_numbers(
 // ============================================================================
 
 /**
+ * @brief Notify when HFP audio connection state changes
+ * 
+ * @param connected true if HFP audio is connected, false otherwise
+ * 
+ * @note This should be called by bt_app_hf.c when HFP audio state changes
+ */
+void bt_hfp_audio_connection_state_changed(bool connected);
+
+/**
+ * @brief Notify when HFP call state changes
+ * 
+ * @param call_active true if call is active, false otherwise
+ * @param call_state ESP-IDF call state value
+ * 
+ * @note This should be called by bt_app_hf.c when call indicator changes
+ *       (ESP_HF_CIND_CALL_EVT)
+ */
+void hfp_notify_call_state(bool call_active, int call_state);
+
+/**
  * @brief Answer an incoming call
  */
 esp_err_t a2dpSinkHfpHf_answer_call(void);

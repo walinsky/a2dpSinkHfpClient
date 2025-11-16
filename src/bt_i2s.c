@@ -103,6 +103,7 @@ static SemaphoreHandle_t s_a2dp_params_ready_sem = NULL;
 // Cleanup semaphores for tasks
 static SemaphoreHandle_t s_a2dp_decode_task_exit_sem = NULL;
 static SemaphoreHandle_t s_a2dp_tx_task_exit_sem = NULL;
+static bool s_a2dp_stopping = false;
 
 // I2S configuration
 static int A2DP_SAMPLE_RATE = A2DP_STANDARD_SAMPLE_RATE;
@@ -518,6 +519,13 @@ void bt_i2s_a2dp_stop(void) {
         return;
     }
     
+    // ✅ Check if already stopped - prevents double-stop
+    if (s_i2s_tx_mode != I2S_TX_MODE_A2DP) {
+        ESP_LOGW(BT_I2S_TAG, "A2DP mode not active, skipping stop");
+        xSemaphoreGive(s_i2s_mode_mutex);
+        return;
+    }
+    
     // This tells TX task to stop and prevents new data
     s_i2s_tx_mode = I2S_TX_MODE_NONE;
     
@@ -568,7 +576,6 @@ void bt_i2s_a2dp_stop(void) {
         s_i2s_a2dp_tx_ringbuf = NULL;
     }
     
-    s_i2s_tx_mode = I2S_TX_MODE_NONE;
     bt_i2s_tx_channel_disable();
     
     /* Delete semaphores */
@@ -589,6 +596,7 @@ void bt_i2s_a2dp_stop(void) {
     // Signal idle state
     xSemaphoreGive(s_i2s_mode_idle_sem);
     xSemaphoreGive(s_i2s_mode_mutex);
+    
     ESP_LOGI(BT_I2S_TAG, "A2DP mode stopped");
 }
 

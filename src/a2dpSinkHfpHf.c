@@ -32,6 +32,18 @@ static char s_country_code[4] = DEFAULT_COUNTRY_CODE;
 static bt_connection_cb_t s_connection_callback = NULL;
 static a2dp_audio_state_cb_t s_audio_state_callback = NULL;
 static hfp_call_state_cb_t s_call_state_callback = NULL;
+
+// voice recognition
+static bool s_hfp_audio_connected = false;
+static bool s_voice_recognition_active = false;
+static bool s_a2dp_was_playing = false;  // Track if we suspended A2DP
+typedef enum {
+    VR_STATE_IDLE,
+    VR_STATE_STARTING,      // VR command sent, waiting for audio
+    VR_STATE_ACTIVE,        // Audio connected, VR running
+    VR_STATE_STOPPING       // Stopping VR
+} vr_state_t;
+static vr_state_t s_vr_state = VR_STATE_IDLE;
 // ============================================================================
 // COMPONENT INITIALIZATION
 // ============================================================================
@@ -182,12 +194,11 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
 
     // ===== STEP 4: Initialize HFP Hands-Free profile =====
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[4/5] Initializing HFP Hands-Free profile");
-    phonebook_init();
-    phonebook_set_country_code(s_country_code);  // Netherlands - change as needed
-
-    // Start phonebook processing task BEFORE Bluetooth
-    bt_app_pbac_task_start();
-
+    #if CONFIG_BT_PBAC_ENABLED
+        phonebook_init();
+        phonebook_set_country_code(s_country_code);  // Netherlands - change as needed
+        bt_app_pbac_task_start();
+    #endif
     ret = esp_hf_client_register_callback(bt_app_hf_client_cb);
     if (ret != ESP_OK) {
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to register HFP callback: %d", ret);
@@ -200,8 +211,10 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
         goto err_cleanup;
     }
 
-    esp_pbac_register_callback(bt_app_pbac_cb);
-    esp_pbac_init();
+    #if CONFIG_BT_PBAC_ENABLED
+        esp_pbac_register_callback(bt_app_pbac_cb);
+        esp_pbac_init();
+    #endif
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "  ✓ HFP Hands-Free profile initialized");
 
     // ===== STEP 5: Initialize A2DP Sink profile =====
@@ -564,6 +577,44 @@ bool a2dpSinkHfpHf_avrc_prev(void)
 // HFP HANDS-FREE CONTROL FUNCTIONS
 // ============================================================================
 
+/**
+ * @brief Called by bt_app_hf.c when HFP audio connection state changes
+ */
+void bt_hfp_audio_connection_state_changed(bool connected)
+{
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "HFP audio connection state: %s", 
+             connected ? "CONNECTED" : "DISCONNECTED");
+    
+    s_hfp_audio_connected = connected;
+    
+    // Handle VR state machine
+    if (connected) {
+        if (s_vr_state == VR_STATE_STARTING) {
+            // Audio connected during VR start - complete the transition
+            ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "✓ Voice recognition active with HFP audio");
+            s_vr_state = VR_STATE_ACTIVE;
+            s_voice_recognition_active = true;
+        }
+    } else {
+        if (s_vr_state == VR_STATE_ACTIVE || s_vr_state == VR_STATE_STARTING) {
+            // Audio disconnected while VR was active/starting
+            ESP_LOGW(A2DP_SINK_HFP_HF_TAG, "HFP audio disconnected during voice recognition");
+            
+            // Clean up and resume A2DP
+            s_vr_state = VR_STATE_IDLE;
+            s_voice_recognition_active = false;
+            
+            if (s_a2dp_was_playing) {
+                ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Resuming A2DP after audio disconnect");
+                bt_i2s_a2dp_start();
+                esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_START);
+                s_a2dp_was_playing = false;
+            }
+        }
+    }
+}
+
+
 esp_err_t a2dpSinkHfpHf_answer_call(void) {
     return esp_hf_client_answer_call();
 }
@@ -595,12 +646,82 @@ esp_err_t a2dpSinkHfpHf_dial_memory(int location) {
 // Voice Recognition
 // ============================================================================
 
-esp_err_t a2dpSinkHfpHf_start_voice_recognition(void) {
-    return esp_hf_client_start_voice_recognition();
+esp_err_t a2dpSinkHfpHf_start_voice_recognition(void)
+{
+    if (!s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    if (s_vr_state != VR_STATE_IDLE) {
+        ESP_LOGW(A2DP_SINK_HFP_HF_TAG, "Voice recognition already active or starting");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Starting voice recognition");
+    
+    // Step 1: Suspend A2DP if playing
+    if (bt_i2s_is_a2dp_mode()) {
+        ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Suspending A2DP for voice recognition");
+        esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_SUSPEND);
+        s_a2dp_was_playing = true;
+        bt_i2s_a2dp_stop();
+        vTaskDelay(pdMS_TO_TICKS(300));
+    } else {
+        s_a2dp_was_playing = false;
+    }
+    
+    // Step 2: Start voice recognition (non-blocking)
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Sending voice recognition command");
+    esp_err_t ret = esp_hf_client_start_voice_recognition();
+    if (ret != ESP_OK) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to start voice recognition: %d", ret);
+        
+        // Resume A2DP on failure
+        if (s_a2dp_was_playing) {
+            bt_i2s_a2dp_start();
+            esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_START);
+            s_a2dp_was_playing = false;
+        }
+        return ret;
+    }
+    
+    // Set state and let callback handle the rest
+    s_vr_state = VR_STATE_STARTING;
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "✓ Voice recognition command sent, waiting for audio connection...");
+    
+    return ESP_OK;
 }
 
-esp_err_t a2dpSinkHfpHf_stop_voice_recognition(void) {
-    return esp_hf_client_stop_voice_recognition();
+esp_err_t a2dpSinkHfpHf_stop_voice_recognition(void)
+{
+    if (!s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    if (s_vr_state == VR_STATE_IDLE) {
+        ESP_LOGW(A2DP_SINK_HFP_HF_TAG, "Voice recognition not active");
+        return ESP_OK;
+    }
+    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Stopping voice recognition");
+    
+    s_vr_state = VR_STATE_STOPPING;
+    
+    // Stop voice recognition
+    esp_err_t ret = esp_hf_client_stop_voice_recognition();
+    if (ret == ESP_OK) {
+        s_voice_recognition_active = false;
+    }
+    
+    // Disconnect HFP audio - callback will resume A2DP
+    bt_app_hf_disconnect_audio();
+    
+    s_vr_state = VR_STATE_IDLE;
+    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "✓ Voice recognition stopped");
+    return ret;
 }
 
 // ============================================================================
