@@ -961,7 +961,7 @@ static void bt_i2s_hfp_task_init(void) {
     }
     
     s_bt_i2s_hfp_tx_task_running = true;
-    xTaskCreate(bt_i2s_hfp_tx_task_handler, "BtI2ShfpTxTask", 4096, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_hfp_tx_task_handle);
+    xTaskCreate(bt_i2s_hfp_tx_task_handler, "BtI2ShfpTxTask", 8192, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_hfp_tx_task_handle);
     
     s_i2s_hfp_rx_ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
     
@@ -971,7 +971,7 @@ static void bt_i2s_hfp_task_init(void) {
     }
     
     s_bt_i2s_hfp_rx_task_running = true;
-    xTaskCreate(bt_i2s_hfp_rx_task_handler, "BtI2ShfpRxTask", 4096, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_hfp_rx_task_handle);
+    xTaskCreate(bt_i2s_hfp_rx_task_handler, "BtI2ShfpRxTask", 8192, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_hfp_rx_task_handle);
 }
 
 /**

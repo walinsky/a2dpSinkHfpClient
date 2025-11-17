@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "bt_gap.h"
+#include "bt_app_avrc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -262,6 +263,8 @@ void a2dp_sink_hfp_hf_register_call_state_cb(hfp_call_state_cb_t callback);
 // ============================================================================
 // AVRC API
 // ============================================================================
+
+void a2dpSinkHfpHf_register_avrc_metadata_callback(bt_avrc_metadata_cb_t callback);
 
 bool a2dpSinkHfpHf_avrc_play(void);
 bool a2dpSinkHfpHf_avrc_pause(void);
