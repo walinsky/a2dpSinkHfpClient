@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include "bt_gap.h"
 #include "bt_app_avrc.h"
+#include "bt_volume_control.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -270,6 +271,44 @@ bool a2dpSinkHfpHf_avrc_play(void);
 bool a2dpSinkHfpHf_avrc_pause(void);
 bool a2dpSinkHfpHf_avrc_next(void);
 bool a2dpSinkHfpHf_avrc_prev(void);
+
+// ============================================================================
+// Volume control
+// ============================================================================
+
+/**
+ * @brief Set HFP Hands-Free speaker volume
+ * 
+ * Controls the speaker volume during phone calls (HFP audio output).
+ * 
+ * @param volume Volume level (0-15, per HFP specification)
+ * @return ESP_OK on success, error code otherwise
+ */
+esp_err_t a2dpSinkHfpHf_set_hfp_speaker_volume(uint8_t volume);
+
+/**
+ * @brief Set HFP Hands-Free microphone volume
+ * 
+ * Controls the microphone gain during phone calls (HFP audio input).
+ * 
+ * @param volume Volume level (0-15, per HFP specification)
+ * @return ESP_OK on success, error code otherwise
+ */
+esp_err_t a2dpSinkHfpHf_set_hfp_mic_volume(uint8_t volume);
+
+/**
+ * @brief Set A2DP sink volume via AVRCP absolute volume
+ * 
+ * Sends absolute volume command to connected phone via AVRCP 1.4+.
+ * Note: This requires AVRCP connection to be established and the phone
+ * to support absolute volume feature. The actual audio scaling happens
+ * on the phone side.
+ * 
+ * @param volume Volume level (0-127, where 0=0% and 127=100%)
+ * @return ESP_OK on success, error code otherwise
+ */
+esp_err_t a2dpSinkHfpHf_set_a2dp_volume(uint8_t volume);
+
 
 #ifdef __cplusplus
 }

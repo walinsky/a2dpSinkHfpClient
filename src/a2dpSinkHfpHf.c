@@ -725,31 +725,6 @@ esp_err_t a2dpSinkHfpHf_stop_voice_recognition(void)
 }
 
 // ============================================================================
-// Volume Control
-// ============================================================================
-
-esp_err_t a2dpSinkHfpHf_volume_update(const char *target, int volume) {
-    if (target == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (volume < 0 || volume > 15) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    esp_hf_volume_control_target_t vol_target;
-    if (strcmp(target, "spk") == 0) {
-        vol_target = ESP_HF_VOLUME_CONTROL_TARGET_SPK;
-    } else if (strcmp(target, "mic") == 0) {
-        vol_target = ESP_HF_VOLUME_CONTROL_TARGET_MIC;
-    } else {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    return esp_hf_client_volume_update(vol_target, volume);
-}
-
-// ============================================================================
 // Query Functions
 // ============================================================================
 
@@ -873,4 +848,90 @@ void hfp_notify_call_state(bool call_active, int call_state)
                  call_active ? "ACTIVE" : "IDLE", call_state);
         s_call_state_callback(call_active, call_state);
     }
+}
+
+// ============================================================================
+// Volume control
+// ============================================================================
+
+/**
+ * @brief Set HFP Hands-Free speaker volume
+ */
+esp_err_t a2dpSinkHfpHf_set_hfp_speaker_volume(uint8_t volume)
+{
+    if (!s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    if (volume > 15) {
+        ESP_LOGW(A2DP_SINK_HFP_HF_TAG, "Volume %d exceeds max (15), clamping", volume);
+        volume = 15;
+    }
+    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Setting HFP speaker volume to %d", volume);
+    bt_i2s_set_hfp_speaker_volume(volume);
+    
+    // Still notify remote device of volume change (for sync)
+    esp_hf_client_volume_update(ESP_HF_VOLUME_CONTROL_TARGET_SPK, volume);
+    
+    return ESP_OK;
+}
+
+/**
+ * @brief Set HFP Hands-Free microphone volume
+ */
+esp_err_t a2dpSinkHfpHf_set_hfp_mic_volume(uint8_t volume)
+{
+    if (!s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    if (volume > 15) {
+        ESP_LOGW(A2DP_SINK_HFP_HF_TAG, "Volume %d exceeds max (15), clamping", volume);
+        volume = 15;
+    }
+    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Setting HFP microphone volume to %d", volume);
+    bt_i2s_set_hfp_mic_volume(volume);
+    
+    // Still notify remote device of volume change (for sync)
+    esp_hf_client_volume_update(ESP_HF_VOLUME_CONTROL_TARGET_MIC, volume);
+    
+    return ESP_OK;
+}
+
+/**
+ * @brief Set A2DP sink volume via local PCM scaling
+ */
+esp_err_t a2dpSinkHfpHf_set_a2dp_volume(uint8_t volume)
+{
+    if (!s_component_initialized) {
+        ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Component not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    if (volume > 15) {
+        ESP_LOGW(A2DP_SINK_HFP_HF_TAG, "Volume %d exceeds max (15), clamping", volume);
+        volume = 15;
+    }
+    
+    ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "Setting A2DP volume to %d", volume);
+    
+    // Apply volume to local PCM audio pipeline
+    bt_i2s_set_a2dp_volume(volume);
+    
+    // Optionally: Sync volume with phone via AVRCP
+    // This keeps phone UI in sync with car stereo volume
+    // Convert 0-15 range to AVRCP 0-127 range
+    uint8_t avrcp_volume = (volume * 127) / 15;
+    esp_err_t ret = bt_app_avrc_set_absolute_volume(avrcp_volume);
+    
+    // Don't fail if AVRCP not connected - local volume still works
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(A2DP_SINK_HFP_HF_TAG, "Failed to sync volume with phone");
+    }
+    
+    return ESP_OK;
 }

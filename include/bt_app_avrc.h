@@ -210,6 +210,19 @@ bool bt_app_avrc_set_volume(uint8_t volume);
  */
 uint8_t bt_app_avrc_get_volume(void);
 
+/**
+ * @brief Set absolute volume via AVRCP
+ * 
+ * Sends AVRCP absolute volume command to connected device.
+ * Handles transaction label internally.
+ * 
+ * @param volume Volume level (0-127, where 0=0% and 127=100%)
+ * @return ESP_OK on success
+ *         ESP_ERR_INVALID_STATE if AVRCP not connected
+ *         ESP_ERR_INVALID_ARG if volume > 127
+ */
+esp_err_t bt_app_avrc_set_absolute_volume(uint8_t volume);
+
 /* ============================================
  * Event Callbacks (Optional)
  * ============================================ */

@@ -203,6 +203,43 @@ i2s_chan_handle_t bt_i2s_get_tx_chan(void);
  */
 i2s_chan_handle_t bt_i2s_get_rx_chan(void);
 
+// ============================================================================
+// Volume control
+// ============================================================================
+
+/**
+ * @brief Set A2DP output volume (0-15)
+ * Scales PCM samples before I2S output
+ */
+void bt_i2s_set_a2dp_volume(uint8_t volume);
+
+/**
+ * @brief Set HFP speaker volume (0-15)
+ * Scales PCM samples before I2S output
+ */
+void bt_i2s_set_hfp_speaker_volume(uint8_t volume);
+
+/**
+ * @brief Set HFP microphone volume (0-15)
+ * Scales PCM samples before encoding
+ */
+void bt_i2s_set_hfp_mic_volume(uint8_t volume);
+
+/**
+ * @brief Get current A2DP volume
+ */
+uint8_t bt_i2s_get_a2dp_volume(void);
+
+/**
+ * @brief Get current HFP speaker volume
+ */
+uint8_t bt_i2s_get_hfp_speaker_volume(void);
+
+/**
+ * @brief Get current HFP microphone volume
+ */
+uint8_t bt_i2s_get_hfp_mic_volume(void);
+
 #ifdef __cplusplus
 }
 #endif

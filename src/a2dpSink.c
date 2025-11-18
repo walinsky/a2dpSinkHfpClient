@@ -131,7 +131,9 @@ static void bt_app_a2dp_audio_state_handler(esp_a2d_cb_param_t *param)
         a2dp_sink_notify_audio_state(true);
     } else if (param->audio_stat.state == ESP_A2D_AUDIO_STATE_SUSPEND) {
         s_audio_stream_active = false;
-        bt_i2s_a2dp_stop();
+        if (bt_i2s_is_a2dp_mode()) {
+            bt_i2s_a2dp_stop();
+        }
         ESP_LOGI(A2DP_SINK_TAG, "A2DP audio stream stopped");
         // Notify audio streaming stopped
         extern void a2dp_sink_notify_audio_state(bool streaming);

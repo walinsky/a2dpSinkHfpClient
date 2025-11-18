@@ -497,6 +497,37 @@ bool bt_app_avrc_cmd_prev(void)
     return true;
 }
 
+/**
+ * @brief Set absolute volume via AVRCP
+ */
+esp_err_t bt_app_avrc_set_absolute_volume(uint8_t volume)
+{
+    // Check if AVRCP is connected
+    if (s_avrc_state.conn_state != BT_AVRC_STATE_CONNECTED) {
+        ESP_LOGW(BT_AVRC_TAG, "Cannot set volume: AVRCP not connected");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    // Validate volume range (AVRCP spec: 0x00-0x7F)
+    if (volume > 127) {
+        ESP_LOGE(BT_AVRC_TAG, "Invalid volume %d (max 127)", volume);
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    // Get next transaction label and send command
+    uint8_t tl = bt_avrc_next_tl();
+    esp_err_t ret = esp_avrc_ct_send_set_absolute_volume_cmd(tl, volume);
+    
+    if (ret == ESP_OK) {
+        ESP_LOGI(BT_AVRC_TAG, "Set absolute volume to %d (%.1f%%)", 
+                 volume, (volume * 100.0f) / 127.0f);
+    } else {
+        ESP_LOGE(BT_AVRC_TAG, "Failed to set volume: %s", esp_err_to_name(ret));
+    }
+    
+    return ret;
+}
+
 // Callback registration
 void bt_app_avrc_register_conn_callback(bt_avrc_conn_state_cb_t callback)
 {

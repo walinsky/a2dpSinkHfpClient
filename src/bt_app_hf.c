@@ -324,8 +324,9 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
 
         case ESP_HF_CLIENT_BVRA_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--VR state %s",
+            ESP_LOGI(BT_HF_TAG, "-- VR state %s",
                     c_vr_state_str[param->bvra.value]);
+            ESP_LOGW(BT_HF_TAG, "we should signal from here!");
             break;
         }
 
@@ -498,7 +499,7 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             break;
         }
         default:
-            ESP_LOGE(BT_HF_TAG, "HF_CLIENT EVT: %d", event);
+            ESP_LOGW(BT_HF_TAG, "UNKNOWNS EVT: %d", event);
             break;
     }
 }

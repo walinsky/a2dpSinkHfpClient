@@ -11,6 +11,7 @@ idf_component_register(
           # "src/app_hf_msg_set.c"
           "src/bt_app_hf.c"
           "src/bt_app_pbac.c"
+          "src/bt_volume_control.c"
 
      INCLUDE_DIRS
           "include"

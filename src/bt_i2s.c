@@ -124,6 +124,33 @@ static size_t i2s_hfp_rx_ringbuffer_total = 0;
 static size_t i2s_hfp_rx_ringbuffer_dropped = 0;
 static size_t i2s_hfp_rx_ringbuffer_sent = 0;
 
+// Volume control (0-15 range)
+static uint8_t s_a2dp_volume = 10;
+static uint8_t s_hfp_speaker_volume = 12;
+static uint8_t s_hfp_mic_volume = 10;
+
+// Volume lookup table for efficient scaling
+// Maps volume 0-15 to gain multiplier (0.0 to 1.0 in Q15 fixed-point format)
+// Using logarithmic curve for natural volume perception
+static const int16_t s_volume_table[16] = {
+    0,      // 0:  -inf dB (mute)
+    410,    // 1:  -36 dB
+    819,    // 2:  -30 dB
+    1638,   // 3:  -24 dB
+    2621,   // 4:  -20 dB
+    4144,   // 5:  -16 dB
+    6554,   // 6:  -12 dB
+    10362,  // 7:  -9 dB
+    13107,  // 8:  -6 dB
+    16384,  // 9:  -4 dB
+    20642,  // 10: -2 dB
+    23593,  // 11: -1 dB
+    26214,  // 12: -0.5 dB
+    29491,  // 13: -0.2 dB
+    31130,  // 14: -0.1 dB
+    32767   // 15: 0 dB (unity gain)
+};
+
 // ============================================================================
 // FORWARD DECLARATIONS (INTERNAL FUNCTIONS)
 // ============================================================================
@@ -158,6 +185,9 @@ static void bt_i2s_hfp_write_rx_ringbuf(unsigned char *data, uint32_t size);
 static void bt_i2s_hfp_task_init(void);
 static void bt_i2s_hfp_task_deinit(void);
 static void bt_i2s_hfp_start_internal(void);
+
+// volume control
+static inline void apply_volume_scaling(int16_t *samples, size_t num_samples, uint8_t volume);
 
 // ============================================================================
 // PUBLIC API: INITIALIZATION & PIN CONFIGURATION
@@ -723,6 +753,10 @@ static void bt_i2s_a2dp_decode_task_handler(void *arg) {
                                          decoded_pcm, &decoded_len, &consumed);
             
             if (ret == 0 && decoded_len > 0) {
+                // Apply volume scaling AFTER decoding, BEFORE sending to ringbuffer
+                apply_volume_scaling((int16_t *)decoded_pcm, 
+                                    decoded_len / 2,  // Convert bytes to samples
+                                    s_a2dp_volume);
                 bt_i2s_a2dp_write_tx_ringbuf(decoded_pcm, decoded_len);
             }
             
@@ -1075,6 +1109,17 @@ static void bt_i2s_hfp_tx_task_handler(void *arg) {
                 break;
             }
             
+            // Apply speaker volume AFTER decode, BEFORE sending to I2S
+            apply_volume_scaling((int16_t *)data,
+                            item_size / 2,
+                            bt_i2s_get_hfp_speaker_volume());
+
+            /*             
+            https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/i2s.html#std-tx-mode
+            ...
+            Besides, for 8-bit and 16-bit mono modes, the real data on the line is swapped. To get the correct data sequence,
+            the writing buffer needs to swap the data every two bytes.
+             */
             // Byte-swap inline (no temp buffer needed)
             int16_t *send_data = (int16_t *)data;
             for (int i = 0; i < (int)(item_size / 2); i += 2) {
@@ -1141,6 +1186,11 @@ static void bt_i2s_hfp_rx_task_handler(void *arg) {
         
         // Convert I2S 32-bit to 16-bit PCM
         i2s_32bit_to_16bit_pcm(i2s_buffer, pcm_buffer, MSBC_FRAME_SAMPLES);
+        
+        // Apply microphone volume AFTER conversion, BEFORE encoding
+        apply_volume_scaling((int16_t *)pcm_buffer, 
+                            MSBC_FRAME_SAMPLES,
+                            s_hfp_mic_volume);
         
         // Encode the PCM data
         size_t encoded_len;
@@ -1241,4 +1291,109 @@ i2s_chan_handle_t bt_i2s_get_tx_chan(void) {
  */
 i2s_chan_handle_t bt_i2s_get_rx_chan(void) {
     return rx_chan;
+}
+
+// ============================================================================
+// Volume control
+// ============================================================================
+
+
+/**
+ * @brief Apply volume scaling to 16-bit PCM samples
+ * Uses Q15 fixed-point arithmetic for efficiency
+ * 
+ * @param samples Pointer to PCM data (modified in-place)
+ * @param num_samples Number of 16-bit samples
+ * @param volume Volume level (0-15)
+ */
+static inline void apply_volume_scaling(int16_t *samples, size_t num_samples, uint8_t volume)
+{
+    if (volume >= 15) {
+        // Unity gain - no scaling needed
+        return;
+    }
+    
+    if (volume == 0) {
+        // Mute - zero out all samples
+        memset(samples, 0, num_samples * sizeof(int16_t));
+        return;
+    }
+    
+    // Get gain multiplier from lookup table
+    int16_t gain = s_volume_table[volume];
+    
+    // Apply gain to each sample using Q15 fixed-point math
+    // Q15: 32767 = 1.0, so multiply and shift right by 15 bits
+    for (size_t i = 0; i < num_samples; i++) {
+        int32_t scaled = ((int32_t)samples[i] * gain) >> 15;
+        
+        // Clamp to prevent overflow (shouldn't happen with proper table)
+        if (scaled > 32767) {
+            samples[i] = 32767;
+        } else if (scaled < -32768) {
+            samples[i] = -32768;
+        } else {
+            samples[i] = (int16_t)scaled;
+        }
+    }
+}
+
+/**
+ * @brief Set A2DP output volume
+ */
+void bt_i2s_set_a2dp_volume(uint8_t volume)
+{
+    if (volume > 15) {
+        volume = 15;
+    }
+    s_a2dp_volume = volume;
+    ESP_LOGI(BT_I2S_TAG, "A2DP volume set to %d", volume);
+}
+
+/**
+ * @brief Set HFP speaker volume
+ */
+void bt_i2s_set_hfp_speaker_volume(uint8_t volume)
+{
+    if (volume > 15) {
+        volume = 15;
+    }
+    s_hfp_speaker_volume = volume;
+    ESP_LOGI(BT_I2S_TAG, "HFP speaker volume set to %d", volume);
+}
+
+/**
+ * @brief Set HFP microphone volume
+ */
+void bt_i2s_set_hfp_mic_volume(uint8_t volume)
+{
+    if (volume > 15) {
+        volume = 15;
+    }
+    s_hfp_mic_volume = volume;
+    ESP_LOGI(BT_I2S_TAG, "HFP mic volume set to %d", volume);
+}
+
+/**
+ * @brief Get current A2DP volume
+ */
+uint8_t bt_i2s_get_a2dp_volume(void)
+{
+    return s_a2dp_volume;
+}
+
+/**
+ * @brief Get current HFP speaker volume
+ */
+uint8_t bt_i2s_get_hfp_speaker_volume(void)
+{
+    return s_hfp_speaker_volume;
+}
+
+/**
+ * @brief Get current HFP microphone volume
+ */
+uint8_t bt_i2s_get_hfp_mic_volume(void)
+{
+    return s_hfp_mic_volume;
 }
