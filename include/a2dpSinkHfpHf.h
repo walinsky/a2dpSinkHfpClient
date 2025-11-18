@@ -5,6 +5,9 @@
 #include "esp_bt_defs.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include "bt_gap.h"
+#include "bt_app_avrc.h"
+#include "bt_volume_control.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,6 +18,26 @@ typedef struct a2dpSinkHfpHf_config_t a2dpSinkHfpHf_config_t;
 typedef struct a2dpSinkHfpHf_contact_t a2dpSinkHfpHf_contact_t;
 typedef struct a2dpSinkHfpHf_phone_number_t a2dpSinkHfpHf_phone_number_t;
 typedef void* a2dpSinkHfpHf_phonebook_handle_t;
+
+/**
+ * @brief Bluetooth connection state callback
+ * @param connected true if connected, false if disconnected
+ * @param remote_bda Remote device Bluetooth address (or NULL on disconnect)
+ */
+typedef void (*bt_connection_cb_t)(bool connected, const uint8_t *remote_bda);
+
+/**
+ * @brief A2DP audio stream state callback
+ * @param streaming true if audio streaming started, false if stopped
+ */
+typedef void (*a2dp_audio_state_cb_t)(bool streaming);
+
+/**
+ * @brief HFP call state callback
+ * @param call_active true if call is active/ringing, false if no call
+ * @param call_state HFP call state (idle, incoming, outgoing, active)
+ */
+typedef void (*hfp_call_state_cb_t)(bool call_active, int call_state);
 
 // Configuration structure
 struct a2dpSinkHfpHf_config_t {
@@ -50,6 +73,25 @@ struct a2dpSinkHfpHf_contact_t {
 esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config);
 esp_err_t a2dpSinkHfpHf_deinit(void);
 esp_err_t a2dpSinkHfpHf_config(const a2dpSinkHfpHf_config_t *config);
+
+// ============================================================================
+// GAP API
+// ============================================================================
+
+/**
+ * @brief Register a callback for GAP events
+ * This allows applications to subscribe to Bluetooth connection/disconnection events
+ * @param callback Callback function
+ * @return ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_register_gap_callback(bt_gap_event_cb_t callback);
+
+/**
+ * @brief Unregister a GAP event callback
+ * @param callback Callback function to unregister
+ * @return ESP_OK on success
+ */
+esp_err_t a2dpSinkHfpHf_unregister_gap_callback(bt_gap_event_cb_t callback);
 
 // ============================================================================
 // PHONEBOOK API
@@ -123,6 +165,26 @@ a2dpSinkHfpHf_phone_number_t* a2dpSinkHfpHf_phonebook_get_numbers(
 // ============================================================================
 
 /**
+ * @brief Notify when HFP audio connection state changes
+ * 
+ * @param connected true if HFP audio is connected, false otherwise
+ * 
+ * @note This should be called by bt_app_hf.c when HFP audio state changes
+ */
+void bt_hfp_audio_connection_state_changed(bool connected);
+
+/**
+ * @brief Notify when HFP call state changes
+ * 
+ * @param call_active true if call is active, false otherwise
+ * @param call_state ESP-IDF call state value
+ * 
+ * @note This should be called by bt_app_hf.c when call indicator changes
+ *       (ESP_HF_CIND_CALL_EVT)
+ */
+void hfp_notify_call_state(bool call_active, int call_state);
+
+/**
  * @brief Answer an incoming call
  */
 esp_err_t a2dpSinkHfpHf_answer_call(void);
@@ -181,15 +243,72 @@ const char* a2dpSinkHfpHf_get_device_name(void);
 bool a2dpSinkHfpHf_is_connected(void);
 esp_err_t a2dpSinkHfpHf_set_country_code(const char *country_code);
 esp_err_t a2dpSinkHfpHf_set_pin(const char *pin_code, uint8_t pin_len);
+/**
+ * @brief Register callback for Bluetooth connection events
+ * @param callback Callback function (NULL to unregister)
+ */
+void a2dp_sink_hfp_hf_register_connection_cb(bt_connection_cb_t callback);
+
+/**
+ * @brief Register callback for A2DP audio streaming state
+ * @param callback Callback function (NULL to unregister)
+ */
+void a2dp_sink_hfp_hf_register_audio_state_cb(a2dp_audio_state_cb_t callback);
+
+/**
+ * @brief Register callback for HFP call state changes
+ * @param callback Callback function (NULL to unregister)
+ */
+void a2dp_sink_hfp_hf_register_call_state_cb(hfp_call_state_cb_t callback);
 
 // ============================================================================
 // AVRC API
 // ============================================================================
 
+void a2dpSinkHfpHf_register_avrc_metadata_callback(bt_avrc_metadata_cb_t callback);
+
 bool a2dpSinkHfpHf_avrc_play(void);
 bool a2dpSinkHfpHf_avrc_pause(void);
 bool a2dpSinkHfpHf_avrc_next(void);
 bool a2dpSinkHfpHf_avrc_prev(void);
+
+// ============================================================================
+// Volume control
+// ============================================================================
+
+/**
+ * @brief Set HFP Hands-Free speaker volume
+ * 
+ * Controls the speaker volume during phone calls (HFP audio output).
+ * 
+ * @param volume Volume level (0-15, per HFP specification)
+ * @return ESP_OK on success, error code otherwise
+ */
+esp_err_t a2dpSinkHfpHf_set_hfp_speaker_volume(uint8_t volume);
+
+/**
+ * @brief Set HFP Hands-Free microphone volume
+ * 
+ * Controls the microphone gain during phone calls (HFP audio input).
+ * 
+ * @param volume Volume level (0-15, per HFP specification)
+ * @return ESP_OK on success, error code otherwise
+ */
+esp_err_t a2dpSinkHfpHf_set_hfp_mic_volume(uint8_t volume);
+
+/**
+ * @brief Set A2DP sink volume via AVRCP absolute volume
+ * 
+ * Sends absolute volume command to connected phone via AVRCP 1.4+.
+ * Note: This requires AVRCP connection to be established and the phone
+ * to support absolute volume feature. The actual audio scaling happens
+ * on the phone side.
+ * 
+ * @param volume Volume level (0-127, where 0=0% and 127=100%)
+ * @return ESP_OK on success, error code otherwise
+ */
+esp_err_t a2dpSinkHfpHf_set_a2dp_volume(uint8_t volume);
+
 
 #ifdef __cplusplus
 }

@@ -27,7 +27,10 @@
 #include "driver/i2s_std.h" 
 #include "bt_i2s.h"
 #include "codec.h"
-#include "bt_app_pbac.h"
+#include "a2dpSinkHfpHf.h"
+#if CONFIG_BT_PBAC_ENABLED
+    #include "bt_app_pbac.h"
+#endif
 #include "ringtone.h"
 
 const char *c_hf_evt_str[] = {
@@ -190,15 +193,19 @@ static bool s_inband_ring_enabled = false;
 // When incoming call received with number
 void on_incoming_call(const char *caller_number)
 {
+#if CONFIG_BT_PBAC_ENABLED
     contact_t *contact = bt_app_pbac_find_by_number(caller_number);
-    
     if (contact) {
-        printf("Incoming call from: %s\n", contact->full_name);
+        ESP_LOGI(BT_HF_TAG, "Incoming call from: %s", contact->full_name);
         // Show contact name on display
         free(contact);
     } else {
-        printf("Incoming call from: %s (unknown)\n", caller_number);
+        ESP_LOGI(BT_HF_TAG, "Incoming call from: %s (unknown)", caller_number);
     }
+#else
+    // PBAC disabled - just show the number
+    ESP_LOGI(BT_HF_TAG, "Incoming call from: %s", caller_number);
+#endif
 }
 
 static void bt_app_hf_client_audio_data_cb(esp_hf_sync_conn_hdl_t sync_conn_hdl, esp_hf_audio_buff_t *audio_buf, bool is_bad_frame)
@@ -269,7 +276,9 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
                     param->conn_stat.chld_feat);
             memcpy(peer_addr,param->conn_stat.remote_bda,ESP_BD_ADDR_LEN);
             if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED) {
-                esp_pbac_connect(peer_addr);
+                #if CONFIG_BT_PBAC_ENABLED
+                    esp_pbac_connect(peer_addr);
+                #endif
             }
             break;
         }
@@ -298,10 +307,12 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
                 s_hfp_audio_connected = true;
                 bt_i2s_hfp_start();
                 esp_hf_client_register_audio_data_callback(bt_app_hf_client_audio_data_cb);
+                bt_hfp_audio_connection_state_changed(true);
             } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
                 ESP_LOGI(BT_HF_TAG, "%s ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED", __func__);
                 // RESUME PHONEBOOK AFTER CALL
                 // bt_app_pbac_resume();
+                bt_hfp_audio_connection_state_changed(false);
                 s_sync_conn_hdl = 0;
                 s_msbc_air_mode = false;
                 s_hfp_audio_connected = false;
@@ -313,8 +324,9 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
 
         case ESP_HF_CLIENT_BVRA_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--VR state %s",
+            ESP_LOGI(BT_HF_TAG, "-- VR state %s",
                     c_vr_state_str[param->bvra.value]);
+            ESP_LOGW(BT_HF_TAG, "we should signal from here!");
             break;
         }
 
@@ -357,6 +369,9 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
         {
             ESP_LOGI(BT_HF_TAG, "--Call indicator %s",
                     c_call_str[param->call.status]);
+            // Notify call state changes to a2dpSinkHfpHf
+            bool call_active = (param->call.status == ESP_HF_CALL_STATUS_CALL_IN_PROGRESS);
+            hfp_notify_call_state(call_active, param->call.status);
             break;
         }
 
@@ -484,7 +499,25 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             break;
         }
         default:
-            ESP_LOGE(BT_HF_TAG, "HF_CLIENT EVT: %d", event);
+            ESP_LOGW(BT_HF_TAG, "UNKNOWNS EVT: %d", event);
             break;
     }
+}
+
+esp_err_t bt_app_hf_connect_audio(void)
+{
+    ESP_LOGI(BT_HF_TAG, "Connecting HFP audio to peer: %02x:%02x:%02x:%02x:%02x:%02x",
+             peer_addr[0], peer_addr[1], peer_addr[2], 
+             peer_addr[3], peer_addr[4], peer_addr[5]);
+    
+    return esp_hf_client_connect_audio(peer_addr);
+}
+
+esp_err_t bt_app_hf_disconnect_audio(void)
+{
+    ESP_LOGI(BT_HF_TAG, "Disconnecting HFP audio from peer: %02x:%02x:%02x:%02x:%02x:%02x",
+             peer_addr[0], peer_addr[1], peer_addr[2], 
+             peer_addr[3], peer_addr[4], peer_addr[5]);
+    
+    return esp_hf_client_disconnect_audio(peer_addr);
 }
