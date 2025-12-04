@@ -233,6 +233,10 @@ esp_err_t a2dpSinkHfpHf_stop_voice_recognition(void);
  */
 esp_err_t a2dpSinkHfpHf_volume_update(const char *target, int volume);
 
+esp_err_t a2dpSinkHfpHf_query_operator(void);
+esp_err_t a2dpSinkHfpHf_query_current_calls(void);
+esp_err_t a2dpSinkHfpHf_retrieve_subscriber_info(void);
+
 // ============================================================================
 // DEVICE CONTROL API
 // ============================================================================
@@ -265,8 +269,13 @@ void a2dp_sink_hfp_hf_register_call_state_cb(hfp_call_state_cb_t callback);
 // AVRC API
 // ============================================================================
 
+esp_err_t a2dpSinkHfpHf_set_avrc_metadata_mask(uint8_t attr_mask);
+void a2dpSinkHfpHf_register_avrc_conn_callback(bt_avrc_conn_state_cb_t callback);
 void a2dpSinkHfpHf_register_avrc_metadata_callback(bt_avrc_metadata_cb_t callback);
-
+void a2dpSinkHfpHf_register_avrc_playback_callback(bt_avrc_playback_status_cb_t callback);
+void a2dpSinkHfpHf_register_avrc_volume_callback(bt_avrc_volume_cb_t callback);
+const bt_avrc_metadata_t* a2dpSinkHfpHf_get_avrc_metadata(void);
+bool a2dpSinkHfpHf_is_avrc_connected(void);
 bool a2dpSinkHfpHf_avrc_play(void);
 bool a2dpSinkHfpHf_avrc_pause(void);
 bool a2dpSinkHfpHf_avrc_next(void);
