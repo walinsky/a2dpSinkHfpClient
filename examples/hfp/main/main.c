@@ -167,7 +167,11 @@ HFP_CMD_HANDLER(volume) {
     }
 
     printf("Volume %s = %d\n", target, volume);
-    a2dpSinkHfpHf_volume_update(target, volume);
+    if(strncmp("spk", target, 3) == 0){
+        a2dpSinkHfpHf_set_hfp_speaker_volume(volume);
+    } else if (strncmp("mic", target, 3) == 0){
+        a2dpSinkHfpHf_set_hfp_mic_volume(volume);
+    }
     return 0;
 }
 
