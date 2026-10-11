@@ -1,0 +1,1 @@
+compote component upload --name a2dpSinkHfpClient

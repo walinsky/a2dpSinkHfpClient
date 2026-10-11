@@ -1,0 +1,152 @@
+================================================================================
+ESP-IDF COMPONENT OVERVIEW
+Generated: Wed Nov 12 12:39:40 WEST 2025
+Component Directory: /c/Users/walin/sources/a2dpSinkHfpClient
+================================================================================
+
+DIRECTORY STRUCTURE:
+--------------------------------------------------------------------------------
+.
+./.git
+./.git/hooks
+./.git/info
+./.git/logs
+./.git/logs/refs
+./.git/logs/refs/heads
+./.git/logs/refs/remotes
+./.git/logs/refs/remotes/origin
+./.git/objects
+./.git/objects/00
+./.git/objects/01
+./.git/objects/02
+./.git/objects/03
+./.git/objects/04
+./.git/objects/06
+./.git/objects/07
+./.git/objects/08
+./.git/objects/09
+./.git/objects/0b
+
+FILE LISTING (sorted by size):
+--------------------------------------------------------------------------------
+44K      ./src/bt_i2s.c
+23K      ./src/phonebook.c
+17K      ./src/bt_app_hf.c
+17K      ./src/bt_app_avrc.c
+17K      ./src/a2dpSinkHfpHf.c
+16K      ./src/app_hf_msg_set.c
+14K      ./src/bt_app_pbac.c
+12K      ./examples/hfp/main/main.c
+11K      ./src/bt_gap.c
+9.5K     ./src/a2dpSink.c
+9.0K     ./include/a2dpSinkHfpHf.h
+8.7K     ./src/codec.c
+7.2K     ./examples/avrc/main/main.c
+6.7K     ./include/bt_app_avrc.h
+6.6K     ./include/bt_i2s.h
+3.7K     ./src/ringtone.c
+2.4K     ./include/codec.h
+2.4K     ./examples/minimal/main/main.c
+2.0K     ./include/phonebook.h
+1.8K     ./CMakeLists.txt
+1.7K     ./include/bt_gap.h
+945      ./include/a2dpSink.h
+667      ./include/bt_app_pbac.h
+466      ./include/bt_app_hf.h
+448      ./include/app_hf_msg_set.h
+363      ./include/ringtone.h
+272      ./examples/minimal/CMakeLists.txt
+269      ./examples/avrc/CMakeLists.txt
+268      ./examples/hfp/CMakeLists.txt
+65       ./examples/minimal/main/CMakeLists.txt
+65       ./examples/hfp/main/CMakeLists.txt
+65       ./examples/avrc/main/CMakeLists.txt
+
+LINE COUNTS PER FILE:
+--------------------------------------------------------------------------------
+1236 ./src/bt_i2s.c
+738 ./src/phonebook.c
+530 ./src/a2dpSinkHfpHf.c
+508 ./src/app_hf_msg_set.c
+490 ./src/bt_app_hf.c
+469 ./src/bt_app_avrc.c
+430 ./examples/hfp/main/main.c
+365 ./src/bt_app_pbac.c
+364 ./src/bt_gap.c
+313 ./include/a2dpSinkHfpHf.h
+291 ./src/codec.c
+285 ./src/a2dpSink.c
+267 ./include/bt_app_avrc.h
+210 ./include/bt_i2s.h
+200 ./examples/avrc/main/main.c
+119 ./src/ringtone.c
+82 ./examples/minimal/main/main.c
+77 ./include/codec.h
+77 ./include/bt_gap.h
+66 ./include/phonebook.h
+33 ./include/a2dpSink.h
+22 ./include/ringtone.h
+21 ./include/bt_app_hf.h
+20 ./include/bt_app_pbac.h
+20 ./include/app_hf_msg_set.h
+
+SUMMARY STATISTICS:
+--------------------------------------------------------------------------------
+File counts:
+  C files (.c):       14
+  Header files (.h):  11
+  C++ files (.cpp):   0
+  C++ headers (.hpp): 0
+
+Total lines of code: 7233
+
+COMPONENT DEPENDENCIES:
+--------------------------------------------------------------------------------
+     PRIV_REQUIRES
+
+CONFIGURATION OPTIONS (Kconfig):
+--------------------------------------------------------------------------------
+No Kconfig found
+
+MEMORY ALLOCATIONS (malloc/xTaskCreate/ringbuffer):
+--------------------------------------------------------------------------------
+./src/bt_app_avrc.c:327:    BaseType_t ret = xTaskCreate(bt_avrc_event_task, "avrc_evt", AVRC_TASK_STACK_SIZE, 
+./src/bt_app_hf.c:213:        uint8_t *decoded_buffer = malloc(MSBC_FRAME_SAMPLES * 2);
+./src/bt_app_hf.c:224:    uint8_t *mic_data = malloc(ESP_HF_MSBC_ENCODED_FRAME_SIZE);
+./src/bt_app_pbac.c:46:    char *data;  // Pointer to malloc'd data
+./src/bt_app_pbac.c:87:                    // Free malloc'd data
+./src/bt_app_pbac.c:126:    BaseType_t ret = xTaskCreate(pbac_processing_task, 
+./src/bt_app_pbac.c:189:            char *data_copy = (char*)malloc(param->pull_phone_book_rsp.data_len + 1);
+./src/bt_i2s.c:481:    s_a2dp_sbc_encoded_ringbuf = xRingbufferCreate(8192, RINGBUF_TYPE_BYTEBUF);
+./src/bt_i2s.c:483:    xTaskCreate(bt_i2s_a2dp_decode_task_handler, "BtI2SA2DPDec", 8192, NULL, configMAX_PRIORITIES - 3, &s_bt_i2s_a2dp_decode_task_hdl);
+./src/bt_i2s.c:488:    if ((s_i2s_a2dp_tx_ringbuf = xRingbufferCreate(RINGBUF_HIGHEST_WATER_LEVEL, RINGBUF_TYPE_BYTEBUF)) == NULL) {
+./src/bt_i2s.c:494:    xTaskCreate(bt_i2s_a2dp_tx_task_handler, "BtI2Sa2dpTask", 6144, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_a2dp_tx_task_handle);
+./src/bt_i2s.c:657:    uint8_t *sbc_buffer = (uint8_t *)malloc(s_a2dp_sbc_packet_size);
+./src/bt_i2s.c:950:    if ((s_i2s_hfp_tx_ringbuf = xRingbufferCreate(RINGBUF_HFP_TX_HIGHEST_WATER_LEVEL, RINGBUF_TYPE_BYTEBUF)) == NULL) {
+./src/bt_i2s.c:956:    xTaskCreate(bt_i2s_hfp_tx_task_handler, "BtI2ShfpTxTask", 4096, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_hfp_tx_task_handle);
+./src/bt_i2s.c:960:    if ((s_i2s_hfp_rx_ringbuf = xRingbufferCreate(RINGBUF_HFP_RX_HIGHEST_WATER_LEVEL, RINGBUF_TYPE_BYTEBUF)) == NULL) {
+./src/bt_i2s.c:966:    xTaskCreate(bt_i2s_hfp_rx_task_handler, "BtI2ShfpRxTask", 4096, NULL, configMAX_PRIORITIES - 4, &s_bt_i2s_hfp_rx_task_handle);
+./src/bt_i2s.c:1106:    int32_t *i2s_buffer = malloc(MSBC_FRAME_SAMPLES * sizeof(int32_t));
+./src/bt_i2s.c:1107:    uint8_t *pcm_buffer = malloc(MSBC_FRAME_SAMPLES * 2);
+./src/bt_i2s.c:1108:    uint8_t *encoded_buffer = malloc(ESP_HF_MSBC_ENCODED_FRAME_SIZE);
+./src/phonebook.c:286:    phonebook_list_node_t *node = (phonebook_list_node_t*)malloc(sizeof(phonebook_list_node_t));
+
+IMPORTANT DEFINES (BUFFER SIZES):
+--------------------------------------------------------------------------------
+./include/codec.h:8:#define MSBC_ENCODED_SIZE       120  // or ESP_HF_MSBC_ENCODED_FRAME_SIZE (57)?
+./include/phonebook.h:16:#define VCARD_BUFFER_SIZE 4096
+./include/phonebook.h:17:#define CONTACT_BATCH_SIZE 20
+./src/bt_app_avrc.c:20:#define AVRC_EVENT_QUEUE_SIZE 10
+./src/bt_app_avrc.c:21:#define AVRC_TASK_STACK_SIZE  (3 * 1024)
+./src/bt_app_pbac.c:19:#define PBAC_QUEUE_SIZE 50
+./src/bt_app_pbac.c:20:#define PBAC_TASK_STACK_SIZE 8192
+./src/bt_app_pbac.c:22:#define PHONEBOOK_PAGE_SIZE 15
+./src/bt_i2s.c:36:#define RINGBUF_HIGHEST_WATER_LEVEL (32 * 1024)
+./src/bt_i2s.c:37:#define RINGBUF_PREFETCH_WATER_LEVEL (20 * 1024)
+./src/bt_i2s.c:40:#define RINGBUF_HFP_TX_HIGHEST_WATER_LEVEL (32 * MSBC_FRAME_SAMPLES * 2)
+./src/bt_i2s.c:41:#define RINGBUF_HFP_TX_PREFETCH_WATER_LEVEL (20 * MSBC_FRAME_SAMPLES * 2)
+./src/bt_i2s.c:42:#define RINGBUF_HFP_RX_HIGHEST_WATER_LEVEL (32 * ESP_HF_MSBC_ENCODED_FRAME_SIZE)
+./src/bt_i2s.c:43:#define RINGBUF_HFP_RX_PREFETCH_WATER_LEVEL (20 * ESP_HF_MSBC_ENCODED_FRAME_SIZE)
+./src/codec.c:14:#define MSBC_FRAME_SIZE_BYTES (MSBC_FRAME_SAMPLES * 2)  // 240 bytes
+./src/ringtone.c:15:#define RINGTONE_BUFFER_SIZE 1600  // 100ms of audio
+

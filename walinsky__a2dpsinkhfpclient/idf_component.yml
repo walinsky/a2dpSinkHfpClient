@@ -1,0 +1,10 @@
+dependencies:
+  espressif/esp_audio_codec: ^2.3.0
+  idf: '>=5.5.0'
+description: a2dp Sink Hfp client with avrc and phonebook support
+license: MIT
+repository: https://github.com/walinsky/a2dpSinkHfpClient.git
+targets:
+- esp32
+url: https://github.com/walinsky/a2dpSinkHfpClient.git
+version: 0.2.2

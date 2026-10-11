@@ -1,0 +1,42 @@
+using esp idf v5.5.1 I'm building a car stereo with a esp32 board, with the a2dpsinkhfphfclient (component) together with a fm reciever.
+I currently have a component for controlling the fm reciever. Hooking this in is beyond scope now.
+I have a 8 push buttons, and 1 rotary button which has it's own push button.
+The push buttons will be connected through voltage dividers to 1 analog pin. The rotary button has it's own pins.
+
+Depending on the state of the car stereo, button presses (and / or holds) should invoke different functions.
+
+When the car stereo is powered on, it should always start in the state it was in before being power cycled.
+When it was turned off before power cycling this means it start up in a turned off state. If it was turned on
+before power cycling, it should start in the state turned on; with radio playing (in it's last state).
+Reason: we don't have a phone connected on startup; so we can't do any bluetooth.
+
+Use case 1:
+A user wants to play fm radio. This is controlled from a designated button. When switched to radio, last played config will start playing.
+When the rotary dial is turned right now, volume should go up; when turned left, volume should go down.
+When the push button on the rotary dial is pushed, current playing station should be displayed. When turning the dial nex/previous
+stations should be displayed (one by one, by 1 click of the dial)
+when the dial hasn't been turned for a given time, the radio should tune to the currently displayed station
+
+use case 2:
+A user is playing fm on the radio. A phone call comes in.
+When the user pushes the button on the rotary dial, the phone call is accepted.
+Whilst having a call, when the user turns the rotary dial, hfp volume should go up/down
+When the user pushes the button on the rotary dial whilst calling, the phone call is ended.
+If the phone call is ended from the other side of the line, the car stereo should return to it's old state. (in this case playing radio)
+
+use case 3:
+A user is browsing the phonebook. A phone call comes in. We should display who's calling; and forget about we were trying to make a phone call.
+The rotary button should act as in hfp mode. 
+
+use case 4:
+A user is playing bt audio. Pressing next/previous buttons will invoke next/previous song.
+
+use case 5: whilst playing radio, we get RDS notifications (station, current song). Whilst playing a2dp audio we get notifications (album/artist etc)
+
+use case 6: we bt connect our phone. our phonebook will be rebuilt; but we want to have our volume settings (a2dp and hfp) set like the last time we
+had it connected.
+
+I think we need a buttons.c (for interpreting the buttons) and a car_stereo_state.c (for keeping state; calling the correct functions)
+what would they look like
+Displaying the messages is beyond the scope; but how would we route them to a handler?
+

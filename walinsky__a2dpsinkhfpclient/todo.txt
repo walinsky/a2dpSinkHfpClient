@@ -1,0 +1,9 @@
+
+memory optimizations
+
+add volume control (both a2dp and hfp)
+
+get rid of sbc_get_frame_size in bt_i2s.c
+consistent naming of all .c files
+
+add kconfig to all examples
