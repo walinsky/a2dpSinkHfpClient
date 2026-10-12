@@ -11,6 +11,8 @@
 #include "bt_app_avrc.h"
 #include "bt_i2s.h"
 #include "codec.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 
 #define A2DP_SINK_TAG "A2DP_SINK"
 
@@ -20,12 +22,75 @@ static bool s_audio_stream_active = false;
 static bool s_audio_data_params_set = false;
 
 static const char *s_a2d_conn_state_str[] = {
-    "Disconnected", "Connecting", "Connected", "Disconnecting"
-};
+    "Disconnected", "Connecting", "Connected", "Disconnecting"};
 
 static const char *s_a2d_audio_state_str[] = {
-    "Suspended", "Started"
-};
+    "Suspended", "Started"};
+
+/**
+ * @brief Get the Bluetooth address of the last connected device
+ */
+esp_err_t bt_gap_get_last_connected_bd_addr(uint8_t *bda)
+{
+    if (bda == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    size_t len = 6;
+    nvs_handle_t handle;
+
+    esp_err_t err = nvs_open("bt_storage", NVS_READONLY, &handle);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+
+    err = nvs_get_blob(handle, "last_bda", bda, &len);
+    nvs_close(handle);
+
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+
+    if (len != 6)
+    {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Set the Bluetooth address of the last connected device
+ */
+
+static void bt_gap_set_last_connected_bd_addr(esp_a2d_cb_param_t *param)
+{
+    if (param == NULL)
+        return;
+
+    uint8_t *bda = param->conn_stat.remote_bda;
+    if (bda == NULL)
+        return;
+
+    nvs_handle_t handle;
+    nvs_open("bt_storage", NVS_READWRITE, &handle);
+
+    uint8_t saved_bda[6];
+    size_t len = sizeof(saved_bda);
+    if (nvs_get_blob(handle, "last_bda", saved_bda, &len) == ESP_OK &&
+        len == sizeof(saved_bda) &&
+        memcmp(saved_bda, bda, 6) == 0)
+    {
+        nvs_close(handle);
+        return;
+    }
+
+    nvs_set_blob(handle, "last_bda", bda, 6);
+    nvs_commit(handle);
+    nvs_close(handle);
+}
 
 /**
  * @brief Handle A2DP connection state changes
@@ -33,12 +98,13 @@ static const char *s_a2d_audio_state_str[] = {
 static void bt_app_a2dp_conn_state_handler(esp_a2d_cb_param_t *param)
 {
     uint8_t *bda = param->conn_stat.remote_bda;
-    
+
     ESP_LOGI(A2DP_SINK_TAG, "A2DP connection state: %s, [%02x:%02x:%02x:%02x:%02x:%02x]",
              s_a2d_conn_state_str[param->conn_stat.state],
              bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
 
-    switch (param->conn_stat.state) {
+    switch (param->conn_stat.state)
+    {
     case ESP_A2D_CONNECTION_STATE_DISCONNECTED:
         s_a2dp_connected = false;
         s_audio_stream_active = false;
@@ -80,34 +146,43 @@ static void bt_app_a2dp_audio_cfg_handler(esp_a2d_cb_param_t *param)
     ESP_LOGI(A2DP_SINK_TAG, "A2DP audio stream configuration, codec type: %d", p_mcc->type);
 
     /* For now only SBC stream is supported */
-    if (p_mcc->type == ESP_A2D_MCT_SBC) {
+    if (p_mcc->type == ESP_A2D_MCT_SBC)
+    {
         int sample_rate = 16000;
         int ch_count = 2;
 
         /* Parse sample rate */
-        if (p_mcc->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_32K) {
+        if (p_mcc->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_32K)
+        {
             sample_rate = 32000;
-        } else if (p_mcc->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_44K) {
+        }
+        else if (p_mcc->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_44K)
+        {
             sample_rate = 44100;
-        } else if (p_mcc->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_48K) {
+        }
+        else if (p_mcc->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_48K)
+        {
             sample_rate = 48000;
-        } else if (p_mcc->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_16K) {
+        }
+        else if (p_mcc->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_16K)
+        {
             sample_rate = 16000;
         }
 
         /* Parse channel count */
-        if (p_mcc->cie.sbc_info.ch_mode & ESP_A2D_SBC_CIE_CH_MODE_MONO) {
+        if (p_mcc->cie.sbc_info.ch_mode & ESP_A2D_SBC_CIE_CH_MODE_MONO)
+        {
             ch_count = 1;
         }
 
         bt_i2s_a2dp_set_audio_config(sample_rate, ch_count);
-        
+
         ESP_LOGI(A2DP_SINK_TAG, "Audio codec configured:");
         ESP_LOGI(A2DP_SINK_TAG, "  Sample rate: %d Hz", sample_rate);
         ESP_LOGI(A2DP_SINK_TAG, "  Channels: %d", ch_count);
         ESP_LOGI(A2DP_SINK_TAG, "  Block len: %d", p_mcc->cie.sbc_info.block_len);
         ESP_LOGI(A2DP_SINK_TAG, "  Subbands: %d", p_mcc->cie.sbc_info.num_subbands);
-        ESP_LOGI(A2DP_SINK_TAG, "  Bitpool: %d-%d", 
+        ESP_LOGI(A2DP_SINK_TAG, "  Bitpool: %d-%d",
                  p_mcc->cie.sbc_info.min_bitpool,
                  p_mcc->cie.sbc_info.max_bitpool);
     }
@@ -121,7 +196,8 @@ static void bt_app_a2dp_audio_state_handler(esp_a2d_cb_param_t *param)
     ESP_LOGI(A2DP_SINK_TAG, "A2DP audio state: %s",
              s_a2d_audio_state_str[param->audio_stat.state]);
 
-    if (param->audio_stat.state == ESP_A2D_AUDIO_STATE_STARTED) {
+    if (param->audio_stat.state == ESP_A2D_AUDIO_STATE_STARTED)
+    {
         s_audio_stream_active = true;
         s_audio_data_params_set = false;
         bt_i2s_a2dp_start();
@@ -129,9 +205,12 @@ static void bt_app_a2dp_audio_state_handler(esp_a2d_cb_param_t *param)
         // Notify audio streaming started
         extern void a2dp_sink_notify_audio_state(bool streaming);
         a2dp_sink_notify_audio_state(true);
-    } else if (param->audio_stat.state == ESP_A2D_AUDIO_STATE_SUSPEND) {
+    }
+    else if (param->audio_stat.state == ESP_A2D_AUDIO_STATE_SUSPEND)
+    {
         s_audio_stream_active = false;
-        if (bt_i2s_is_a2dp_mode()) {
+        if (bt_i2s_is_a2dp_mode())
+        {
             bt_i2s_a2dp_stop();
         }
         ESP_LOGI(A2DP_SINK_TAG, "A2DP audio stream stopped");
@@ -141,17 +220,19 @@ static void bt_app_a2dp_audio_state_handler(esp_a2d_cb_param_t *param)
     }
 }
 
-
 void bt_app_a2d_audio_data_cb(uint16_t conn_hdl, esp_a2d_audio_buff_t *audio_buf)
 {
-    if (audio_buf == NULL || !s_audio_stream_active || 
-        audio_buf->data == NULL || audio_buf->data_len == 0) {
-        if (audio_buf) esp_a2d_audio_buff_free(audio_buf);
+    if (audio_buf == NULL || !s_audio_stream_active ||
+        audio_buf->data == NULL || audio_buf->data_len == 0)
+    {
+        if (audio_buf)
+            esp_a2d_audio_buff_free(audio_buf);
         return;
     }
 
     /* Set packet params from FIRST audio buffer (auto-detect) */
-    if (!s_audio_data_params_set) {
+    if (!s_audio_data_params_set)
+    {
         bt_i2s_a2dp_set_packet_params(audio_buf->data_len, audio_buf->number_frame);
         s_audio_data_params_set = true;
     }
@@ -165,14 +246,21 @@ void bt_app_a2d_audio_data_cb(uint16_t conn_hdl, esp_a2d_audio_buff_t *audio_buf
  */
 void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
 {
-    if (param == NULL) {
+    if (param == NULL)
+    {
         ESP_LOGE(A2DP_SINK_TAG, "A2DP callback: NULL param");
         return;
     }
 
-    switch (event) {
+    switch (event)
+    {
     case ESP_A2D_CONNECTION_STATE_EVT:
         bt_app_a2dp_conn_state_handler(param);
+
+        if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED)
+        {
+            bt_gap_set_last_connected_bd_addr(param);
+        }
         break;
 
     case ESP_A2D_AUDIO_STATE_EVT:
@@ -184,18 +272,24 @@ void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
         break;
 
     case ESP_A2D_PROF_STATE_EVT:
-        if (ESP_A2D_INIT_SUCCESS == param->a2d_prof_stat.init_state) {
+        if (ESP_A2D_INIT_SUCCESS == param->a2d_prof_stat.init_state)
+        {
             ESP_LOGI(A2DP_SINK_TAG, "A2DP PROF STATE: Init Complete");
-        } else {
+        }
+        else
+        {
             ESP_LOGI(A2DP_SINK_TAG, "A2DP PROF STATE: Deinit Complete");
         }
         break;
 
     case ESP_A2D_SEP_REG_STATE_EVT:
-        if (param->a2d_sep_reg_stat.reg_state == ESP_A2D_SEP_REG_SUCCESS) {
+        if (param->a2d_sep_reg_stat.reg_state == ESP_A2D_SEP_REG_SUCCESS)
+        {
             ESP_LOGI(A2DP_SINK_TAG, "A2DP register SEP success, seid: %d",
                      param->a2d_sep_reg_stat.seid);
-        } else {
+        }
+        else
+        {
             ESP_LOGE(A2DP_SINK_TAG, "A2DP register SEP fail, seid: %d, state: %d",
                      param->a2d_sep_reg_stat.seid, param->a2d_sep_reg_stat.reg_state);
         }
@@ -220,7 +314,8 @@ esp_err_t a2dp_sink_init(void)
 
     /* Initialize A2DP sink */
     ret = esp_a2d_sink_init();
-    if (ret != ESP_OK) {
+    if (ret != ESP_OK)
+    {
         ESP_LOGE(A2DP_SINK_TAG, "Failed to init A2DP sink: %d", ret);
         return ret;
     }
@@ -228,19 +323,20 @@ esp_err_t a2dp_sink_init(void)
     /* Register SEP (Stream Endpoint) BEFORE callback - this may be critical */
     esp_a2d_mcc_t mcc = {0};
     mcc.type = ESP_A2D_MCT_SBC;
-    mcc.cie.sbc_info.samp_freq = ESP_A2D_SBC_CIE_SF_44K | ESP_A2D_SBC_CIE_SF_48K | 
-                                  ESP_A2D_SBC_CIE_SF_32K | ESP_A2D_SBC_CIE_SF_16K;
+    mcc.cie.sbc_info.samp_freq = ESP_A2D_SBC_CIE_SF_44K | ESP_A2D_SBC_CIE_SF_48K |
+                                 ESP_A2D_SBC_CIE_SF_32K | ESP_A2D_SBC_CIE_SF_16K;
     mcc.cie.sbc_info.ch_mode = ESP_A2D_SBC_CIE_CH_MODE_MONO | ESP_A2D_SBC_CIE_CH_MODE_STEREO |
                                ESP_A2D_SBC_CIE_CH_MODE_DUAL_CHANNEL | ESP_A2D_SBC_CIE_CH_MODE_JOINT_STEREO;
-    mcc.cie.sbc_info.block_len = ESP_A2D_SBC_CIE_BLOCK_LEN_4 | ESP_A2D_SBC_CIE_BLOCK_LEN_8 | 
+    mcc.cie.sbc_info.block_len = ESP_A2D_SBC_CIE_BLOCK_LEN_4 | ESP_A2D_SBC_CIE_BLOCK_LEN_8 |
                                  ESP_A2D_SBC_CIE_BLOCK_LEN_12 | ESP_A2D_SBC_CIE_BLOCK_LEN_16;
     mcc.cie.sbc_info.num_subbands = ESP_A2D_SBC_CIE_NUM_SUBBANDS_4 | ESP_A2D_SBC_CIE_NUM_SUBBANDS_8;
-    mcc.cie.sbc_info.alloc_mthd = ESP_A2D_SBC_CIE_ALLOC_MTHD_SRN | ESP_A2D_SBC_CIE_ALLOC_MTHD_LOUDNESS;
+    mcc.cie.sbc_info.alloc_mthd = ESP_A2D_SBC_CIE_ALLOC_MTHD_SNR | ESP_A2D_SBC_CIE_ALLOC_MTHD_LOUDNESS; // 9999
     mcc.cie.sbc_info.min_bitpool = 2;
     mcc.cie.sbc_info.max_bitpool = 53;
-    
+
     ret = esp_a2d_sink_register_stream_endpoint(0, &mcc);
-    if (ret != ESP_OK) {
+    if (ret != ESP_OK)
+    {
         ESP_LOGE(A2DP_SINK_TAG, "Failed to register SEP: %d", ret);
         return ret;
     }
@@ -248,7 +344,8 @@ esp_err_t a2dp_sink_init(void)
 
     /* Register audio data callback - AFTER SEP */
     ret = esp_a2d_sink_register_audio_data_callback(&bt_app_a2d_audio_data_cb);
-    if (ret != ESP_OK) {
+    if (ret != ESP_OK)
+    {
         ESP_LOGE(A2DP_SINK_TAG, "Failed to register audio data callback: %d", ret);
         return ret;
     }
@@ -256,7 +353,8 @@ esp_err_t a2dp_sink_init(void)
 
     /* Register A2DP event callback - LAST */
     ret = esp_a2d_register_callback(&bt_app_a2d_cb);
-    if (ret != ESP_OK) {
+    if (ret != ESP_OK)
+    {
         ESP_LOGE(A2DP_SINK_TAG, "Failed to register A2DP callback: %d", ret);
         return ret;
     }
@@ -265,7 +363,7 @@ esp_err_t a2dp_sink_init(void)
     return ESP_OK;
 }
 
- /**
+/**
  * @brief Deinitialize A2DP Sink
  */
 esp_err_t a2dp_sink_deinit(void)

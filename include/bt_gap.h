@@ -115,6 +115,12 @@ esp_err_t bt_gap_set_pin(const char *pin_code, uint8_t pin_len);
  */
 esp_err_t bt_gap_get_pin(char *pin_code, uint8_t *pin_len);
 
+/**
+ * @brief Auto reconnect to the last connected Bluetooth device using HFP.
+ * If the ESP was previously connected to the device, it will automatically reconnect upon power-up.
+ */
+esp_err_t bt_gap_auto_reconnect(void);
+
 #ifdef __cplusplus
 }
 #endif

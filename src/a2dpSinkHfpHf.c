@@ -148,7 +148,7 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
     // Initialize Bluedroid with SSP disabled
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "[0/5] Initializing Bluedroid Stack");
     esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
-    bluedroid_cfg.ssp_en = false;  // Disable SSP - use classic PIN pairing
+    bluedroid_cfg.ssp_en = true;  // Disable SSP - use classic PIN pairing // was false
     ret = esp_bluedroid_init_with_cfg(&bluedroid_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(A2DP_SINK_HFP_HF_TAG, "Failed to init Bluedroid: %s", esp_err_to_name(ret));
@@ -239,7 +239,22 @@ esp_err_t a2dpSinkHfpHf_init(const a2dpSinkHfpHf_config_t *config)
 
     ESP_LOGI(A2DP_SINK_HFP_HF_TAG, "✓ Device is now discoverable and connectable");
 
+    #ifdef CONFIG_A2DPSINK_AUTO_RECONNECT
+        vTaskDelay(pdMS_TO_TICKS(300));
+        esp_err_t err = bt_gap_auto_reconnect();
+        if (err != ESP_OK) {
+        ESP_LOGW("BT", "Auto reconnect failed: %s",
+                esp_err_to_name(err));
+        } else {
+            ESP_LOGI("BT", "Auto reconnect OK");
+        }   
+    #endif
+
     s_component_initialized = true;
+
+
+
+
     return ESP_OK;
 
 err_cleanup:

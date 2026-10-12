@@ -1,4 +1,10 @@
 menu "A2DP Sink + HFP Client Configuration"
+    config A2DPSINK_AUTO_RECONNECT
+        bool "Auto Reconnect"
+        default y
+        help
+            Auto reconnect to the last connected Bluetooth device using HFP.
+            If the ESP was previously connected to the device, it will automatically reconnect upon power-up.
 
     config A2DPSINK_HFPHF_DEVICE_NAME
         string "Bluetooth Device Name"
@@ -8,7 +14,7 @@ menu "A2DP Sink + HFP Client Configuration"
 
     config A2DPSINK_HFPHF_PIN_CODE
         string "Bluetooth PIN Code"
-        default "5678"
+        default "1234"
         help
             PIN code for Bluetooth pairing (4-16 digits).
 
@@ -66,21 +72,21 @@ menu "A2DP Sink + HFP Client Configuration"
     menu "I2S TX Configuration (Audio Output)"
         config A2DPSINK_HFPHF_I2S_TX_BCK
             int "I2S TX BCK Pin"
-            default 26
+            default 25
             range 0 39
             help
                 GPIO pin for I2S TX bit clock (BCK).
 
         config A2DPSINK_HFPHF_I2S_TX_WS
             int "I2S TX WS Pin"
-            default 17
+            default 27
             range 0 39
             help
                 GPIO pin for I2S TX word select (WS/LRCK).
 
         config A2DPSINK_HFPHF_I2S_TX_DOUT
             int "I2S TX DOUT Pin"
-            default 25
+            default 26
             range 0 39
             help
                 GPIO pin for I2S TX data output.
@@ -89,21 +95,21 @@ menu "A2DP Sink + HFP Client Configuration"
     menu "I2S RX Configuration (Microphone Input)"
         config A2DPSINK_HFPHF_I2S_RX_BCK
             int "I2S RX BCK Pin"
-            default 16
+            default 15
             range 0 39
             help
                 GPIO pin for I2S RX bit clock (BCK).
 
         config A2DPSINK_HFPHF_I2S_RX_WS
             int "I2S RX WS Pin"
-            default 27
+            default 2
             range 0 39
             help
                 GPIO pin for I2S RX word select (WS/LRCK).
 
         config A2DPSINK_HFPHF_I2S_RX_DIN
             int "I2S RX DIN Pin"
-            default 14
+            default 0
             range 0 39
             help
                 GPIO pin for I2S RX data input.
