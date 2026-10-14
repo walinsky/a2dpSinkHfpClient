@@ -13,6 +13,11 @@ static const char *TAG = "CODEC";
 #define MSBC_BITS_PER_SAMPLE 16
 #define MSBC_FRAME_SIZE_BYTES (MSBC_FRAME_SAMPLES * 2)  // 240 bytes
 
+// Microphone gain applied when converting 32-bit I2S samples to 16-bit PCM.
+// Right shift amount: the SMALLER the number, the LOUDER the signal.
+// 16 = 0 dB, 15 = +6 dB, 14 = +12 dB, 13 = +18 dB
+#define MIC_PCM_RSHIFT  14
+
 // Static handles for encoder and decoder
 static void *encoder_handle = NULL;
 static void *decoder_handle = NULL;
@@ -282,10 +287,11 @@ int a2dp_sbc_dec_data(const uint8_t *in_data, size_t in_data_len,
 
 void i2s_32bit_to_16bit_pcm(const int32_t *i2s_data, uint8_t *pcm_data, size_t num_samples)
 {
-    uint8_t *input_bytes = (uint8_t *)i2s_data;
+    int16_t *out = (int16_t *)pcm_data;
     for (size_t i = 0; i < num_samples; i++) {
-        // Extract bytes [2] and [3] from each 32-bit word
-        pcm_data[i * 2] = input_bytes[i * 4 + 2];     // mid byte
-        pcm_data[i * 2 + 1] = input_bytes[i * 4 + 3]; // high byte
+        int32_t s = i2s_data[i] >> MIC_PCM_RSHIFT;
+        if (s > 32767)       s = 32767;
+        else if (s < -32768) s = -32768;
+        out[i] = (int16_t)s;
     }
 }
